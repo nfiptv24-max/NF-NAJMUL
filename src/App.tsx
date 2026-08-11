@@ -45,6 +45,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('events');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Auto Update State
+  const [updateInfo, setUpdateInfo] = useState<any>(null);
+  const CURRENT_VERSION = "1.0.0"; // অ্যাপের বর্তমান ভার্সন
+
   // Admin App vs User App separation state
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
@@ -163,13 +167,23 @@ export default function App() {
     });
   }, [firestoreChannels, m3uChannels]);
 
-  // Firestore Realtime Subscriptions & Initial M3U Fetch
+  // Firestore Realtime Subscriptions, Initial M3U Fetch & Auto Update Check
   useEffect(() => {
     // Auto seed default collections on initial boot
     seedInitialFirestoreData().catch(() => {});
 
     // Fetch primary M3U playlist
     fetchNafiTvPlaylist(false);
+
+    // Auto Update Check from GitHub
+    fetch('https://raw.githubusercontent.com/nfiptv24-max/NF-NAJMUL/main/version.json')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.version && data.version !== CURRENT_VERSION) {
+          setUpdateInfo(data);
+        }
+      })
+      .catch(err => console.log("Update check failed", err));
 
     const unsubCh = subscribeChannels((data) => {
       if (data && data.length > 0) {
@@ -497,6 +511,30 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Auto Update Notification Banner */}
+      {updateInfo && (
+        <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto z-50 bg-[#1e293b] border border-emerald-500 text-white p-4 rounded-xl shadow-2xl backdrop-blur-md flex flex-col gap-2 animate-bounce">
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-emerald-400 text-sm">🔔 নতুন আপডেট উপলব্ধ!</span>
+            <button 
+              onClick={() => setUpdateInfo(null)}
+              className="text-gray-400 hover:text-white text-xs font-bold px-2 py-1"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="text-xs text-gray-300">{updateInfo.releaseNotes}</p>
+          <a 
+            href={updateInfo.apkUrl} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="mt-1 bg-emerald-600 hover:bg-emerald-500 text-white text-center py-2 rounded-lg text-xs font-bold transition-all"
+          >
+            এখনই আপডেট করুন (Download APK)
+          </a>
+        </div>
+      )}
 
       {/* Mobile Bottom Navigation (User App) */}
       {mode === 'mobile' && !isAdminMode && (
