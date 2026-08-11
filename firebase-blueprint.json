@@ -1,0 +1,94 @@
+{
+  "entities": {
+    "channels": {
+      "title": "Channels",
+      "description": "Live TV channels managed via Firebase Firestore",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "logo": { "type": "string" },
+        "category": { "type": "string" },
+        "country": { "type": "string" },
+        "url": { "type": "string" },
+        "servers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "url": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["name", "url"]
+    },
+    "events": {
+      "title": "Sports Events",
+      "description": "Live and upcoming sports events",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sport": { "type": "string" },
+        "status": { "type": "string" },
+        "tournament": { "type": "string" },
+        "startTime": { "type": "number" },
+        "logo": { "type": "string" },
+        "name": { "type": "string" },
+        "url": { "type": "string" },
+        "servers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "url": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["sport", "status", "tournament"]
+    },
+    "movies": {
+      "title": "Movies",
+      "description": "Movies and video stream items",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "poster": { "type": "string" },
+        "rating": { "type": "string" },
+        "year": { "type": "string" },
+        "quality": { "type": "string" },
+        "url": { "type": "string" },
+        "servers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "url": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["name", "url"]
+    },
+    "playlists": {
+      "title": "Playlists",
+      "description": "M3U Playlists and channel feeds",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "url": { "type": "string" },
+        "logo": { "type": "string" },
+        "channelCount": { "type": "number" },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "url"]
+    }
+  }
+}
