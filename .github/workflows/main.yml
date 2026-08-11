@@ -44,6 +44,11 @@ jobs:
         npx cap add android || true
         npx cap sync android
 
+    - name: Fix Kotlin Conflict
+      run: |
+        echo "android.packaging.jniLibs.useLegacyPackaging=true" >> android/gradle.properties
+        echo "configurations.all { resolutionStrategy { force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22', 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22' } }" >> android/app/build.gradle
+
     - name: Build Android Debug APK
       run: |
         cd android
