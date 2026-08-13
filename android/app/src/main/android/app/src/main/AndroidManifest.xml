@@ -7,27 +7,19 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
-    <!-- 🚀 External Video Players (MX Player, VLC, ইত্যাদি) সাপোর্ট করার জন্য QUERIES -->
+    <!-- 🚀 External Video Players (MX Player, VLC) -->
     <queries>
-        <!-- MX Player (Free & Pro) -->
         <package android:name="com.mxtech.videoplayer.ad" />
         <package android:name="com.mxtech.videoplayer.pro" />
-        
-        <!-- VLC Player -->
         <package android:name="org.videolan.vlc" />
-
-        <!-- অন্যান্য যেকোনো প্লেয়ারের জন্য Intent Filter -->
+        
         <intent>
             <action android:name="android.intent.action.VIEW" />
-            <data android:mimeType="video/*" />
+            <data android:scheme="https" android:mimeType="video/*" />
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="http" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" />
+            <data android:scheme="http" android:mimeType="video/*" />
         </intent>
     </queries>
 
