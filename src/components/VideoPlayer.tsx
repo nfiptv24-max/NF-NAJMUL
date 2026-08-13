@@ -1,4 +1,4 @@
-  import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import {
   X,
@@ -15,7 +15,8 @@ import {
   AlertTriangle,
   Loader2,
   Server,
-  PictureInPicture2
+  PictureInPicture2,
+  RefreshCw
 } from 'lucide-react';
 import { ServerLink, PlayerStatus, ZoomMode } from '../types';
 import { DEFAULT_LOGO } from '../data/initialData';
@@ -48,6 +49,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [useIframe, setUseIframe] = useState(false); // 👈 Iframe Toggle State
   const [status, setStatus] = useState<PlayerStatus>({
     type: 'loading',
     text: 'Connecting...',
@@ -67,12 +69,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const failoverTimer = useRef<NodeJS.Timeout | null>(null);
   const lastInteractionTime = useRef<number>(0);
 
-  // Synchronize currentUrl when streamUrl prop changes
   useEffect(() => {
     setCurrentUrl(streamUrl);
+    setUseIframe(false); // Reset Iframe mode on URL change
   }, [streamUrl]);
 
-  // Request screen WakeLock to prevent screen dimming
   const requestWakeLock = async () => {
     try {
       if ('wakeLock' in navigator) {
@@ -91,7 +92,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // Reset channel info overlay on new channel / stream load
   useEffect(() => {
     setShowChannelInfo(true);
     if (hideInfoTimer.current) clearTimeout(hideInfoTimer.current);
@@ -104,7 +104,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [title, logo, currentUrl]);
 
-  // Controls auto-hide timer
   const triggerControlsOverlay = () => {
     setShowControls(true);
     if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
@@ -123,14 +122,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // Lock or unlock orientation
   const lockLandscape = () => {
     try {
       const orientation = (screen.orientation || (screen as any).mozOrientation || (screen as any).msOrientation) as any;
       if (orientation && typeof orientation.lock === 'function') {
         orientation.lock('landscape').catch(() => {});
-      } else if ((screen as any).lockOrientation) {
-        (screen as any).lockOrientation('landscape');
       }
     } catch (_) {}
   };
@@ -140,13 +136,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const orientation = (screen.orientation || (screen as any).mozOrientation || (screen as any).msOrientation) as any;
       if (orientation && typeof orientation.unlock === 'function') {
         orientation.unlock();
-      } else if ((screen as any).unlockOrientation) {
-        (screen as any).unlockOrientation();
       }
     } catch (_) {}
   };
 
-  // Fullscreen change listener
   useEffect(() => {
     const handleFullscreenChange = () => {
       const isFS = !!(
@@ -165,106 +158,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
-    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
-
     triggerControlsOverlay();
 
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
       if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
     };
   }, []);
 
-  // Trigger control timer on play state change
-  useEffect(() => {
-    triggerControlsOverlay();
-  }, [isPlaying]);
-
-  // TV Remote (D-Pad) and Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        document.activeElement &&
-        (document.activeElement.tagName === 'INPUT' ||
-          document.activeElement.tagName === 'TEXTAREA')
-      ) {
-        return;
-      }
-
-      const key = e.key;
-      triggerControlsOverlay();
-
-      switch (key) {
-        case 'Enter':
-        case ' ':
-        case 'Select':
-        case 'MediaPlayPause':
-          e.preventDefault();
-          togglePlayPause();
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          if (onPrevChannel) {
-            onPrevChannel();
-          } else if (videoRef.current && duration > 0 && isFinite(duration)) {
-            videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
-          }
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          if (onNextChannel) {
-            onNextChannel();
-          } else if (videoRef.current && duration > 0 && isFinite(duration)) {
-            videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 10);
-          }
-          break;
-        case 'ArrowUp':
-        case 'ChannelUp':
-        case 'PageUp':
-          e.preventDefault();
-          if (onNextChannel) onNextChannel();
-          break;
-        case 'ArrowDown':
-        case 'ChannelDown':
-        case 'PageDown':
-          e.preventDefault();
-          if (onPrevChannel) onPrevChannel();
-          break;
-        case 'f':
-        case 'F':
-          e.preventDefault();
-          toggleFullscreen();
-          break;
-        case 'm':
-        case 'M':
-          e.preventDefault();
-          toggleMute();
-          break;
-        case 'Escape':
-        case 'Backspace':
-        case 'GoBack':
-          if (onClose) {
-            e.preventDefault();
-            onClose();
-          }
-          break;
-        default:
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isPlaying, duration, onNextChannel, onPrevChannel, onClose]);
-
-  // Video cleanup
   const cleanupPlayer = () => {
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -278,15 +179,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     releaseWakeLock();
   };
 
-  // Main Stream Loader with Custom HLS & CORS Handling
+  // Main Stream Loader Logic
   useEffect(() => {
+    if (useIframe) {
+      setStatus({ type: 'playing', text: 'Playing via Embedded Player', subText: title });
+      return;
+    }
+
     const video = videoRef.current;
     if (!video || !currentUrl) return;
 
     cleanupPlayer();
     setStatus({ type: 'loading', text: 'Connecting...', subText: title || 'Loading stream' });
 
-    // Enhanced URL detection for HLS Streams
     const isHlsUrl =
       currentUrl.toLowerCase().includes('.m3u8') ||
       currentUrl.includes('hlsmod') ||
@@ -298,13 +203,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         lowLatencyMode: true,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
-        xhrSetup: (xhr) => {
-          xhr.withCredentials = false; // Bypass strict CORS restriction
-        },
-        manifestLoadingTimeOut: 20000,
-        manifestLoadingMaxRetry: 5,
-        levelLoadingTimeOut: 20000,
-        levelLoadingMaxRetry: 5,
+        manifestLoadingTimeOut: 15000,
+        manifestLoadingMaxRetry: 3,
       });
 
       hlsRef.current = hls;
@@ -321,43 +221,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
       });
 
-      // Smart Error Handling & Auto-recovery
+      // If Hls fails due to CORS, switch automatically to Iframe fallback
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              console.warn('Network error, attempting to recover...');
-              hls.startLoad();
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              console.warn('Media error, attempting to recover...');
-              hls.recoverMediaError();
-              break;
-            default:
-              console.warn('Fatal HLS Error, triggering failover:', data);
-              setStatus({ type: 'error', text: 'Stream Error', subText: 'Auto-switching channel...' });
-              if (failoverTimer.current) clearTimeout(failoverTimer.current);
-              failoverTimer.current = setTimeout(() => {
-                if (onFailoverNext) onFailoverNext();
-              }, 2000);
-              break;
-          }
+          console.warn('HLS Error encountered. Switching to Iframe Fallback...');
+          setUseIframe(true);
         }
       });
     } else {
-      // Direct MP4 or native browser playback
       video.src = currentUrl;
       video.play().then(() => {
         setIsPlaying(true);
         setStatus({ type: 'playing', text: 'Playing', subText: title });
         requestWakeLock();
-      }).catch((err) => {
-        console.warn('Video element play error:', err);
-        setStatus({ type: 'error', text: 'Playback Failed', subText: 'Trying alternative server...' });
-        if (failoverTimer.current) clearTimeout(failoverTimer.current);
-        failoverTimer.current = setTimeout(() => {
-          if (onFailoverNext) onFailoverNext();
-        }, 2500);
+      }).catch(() => {
+        console.warn('Direct play failed. Switching to Iframe Fallback...');
+        setUseIframe(true);
       });
     }
 
@@ -365,33 +244,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       cleanupPlayer();
       if (failoverTimer.current) clearTimeout(failoverTimer.current);
     };
-  }, [currentUrl]);
+  }, [currentUrl, useIframe]);
 
-  // Video event listeners
   const handleTimeUpdate = () => {
     if (videoRef.current) {
       setCurrentTime(videoRef.current.currentTime);
       setDuration(videoRef.current.duration || 0);
     }
-  };
-
-  const handleWaiting = () => {
-    setStatus({ type: 'buffering', text: 'Buffering...', subText: 'Loading stream buffer' });
-  };
-
-  const handleCanPlay = () => {
-    setStatus({ type: 'playing', text: 'Playing', subText: title });
-  };
-
-  const handlePlaying = () => {
-    setIsPlaying(true);
-    setStatus({ type: 'playing', text: 'Playing', subText: title });
-    requestWakeLock();
-  };
-
-  const handlePause = () => {
-    setIsPlaying(false);
-    releaseWakeLock();
   };
 
   const togglePlayPause = () => {
@@ -418,76 +277,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  const cycleSpeed = () => {
-    const speeds = [1.0, 1.25, 1.5, 2.0, 0.5];
-    const nextIdx = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
-    const nextSpeed = speeds[nextIdx];
-    setPlaybackSpeed(nextSpeed);
-    if (videoRef.current) {
-      videoRef.current.playbackRate = nextSpeed;
-    }
-  };
-
-  const cycleZoomMode = () => {
-    const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
-    const nextIdx = (modes.indexOf(zoomMode) + 1) % modes.length;
-    setZoomMode(modes[nextIdx]);
-  };
-
   const toggleFullscreen = async () => {
     if (!containerRef.current) return;
-
-    const isFS = !!(
-      document.fullscreenElement ||
-      (document as any).webkitFullscreenElement ||
-      (document as any).mozFullScreenElement ||
-      (document as any).msFullscreenElement
-    );
+    const isFS = !!document.fullscreenElement;
 
     if (!isFS) {
       try {
-        const elem = containerRef.current as any;
-        if (elem.requestFullscreen) {
-          await elem.requestFullscreen();
-        } else if (elem.webkitRequestFullscreen) {
-          await elem.webkitRequestFullscreen();
-        } else if (elem.mozRequestFullScreen) {
-          await elem.mozRequestFullScreen();
-        } else if (elem.msRequestFullscreen) {
-          await elem.msRequestFullscreen();
-        }
+        await containerRef.current.requestFullscreen();
         lockLandscape();
       } catch (_) {
         lockLandscape();
       }
     } else {
       try {
-        const doc = document as any;
-        if (doc.exitFullscreen) {
-          await doc.exitFullscreen();
-        } else if (doc.webkitExitFullscreen) {
-          await doc.webkitExitFullscreen();
-        } else if (doc.mozCancelFullScreen) {
-          await doc.mozCancelFullScreen();
-        } else if (doc.msExitFullscreen) {
-          await doc.msExitFullscreen();
-        }
+        await document.exitFullscreen();
         unlockOrientation();
       } catch (_) {
         unlockOrientation();
       }
-    }
-  };
-
-  const togglePiP = async () => {
-    if (videoRef.current && document.pictureInPictureEnabled) {
-      try {
-        if (document.pictureInPictureElement) {
-          await document.exitPictureInPicture();
-        } else {
-          await videoRef.current.requestPictureInPicture();
-        }
-      } catch (_) {}
     }
   };
 
@@ -511,21 +318,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen max-w-none max-h-none flex items-center justify-center' : 'aspect-video'
         }`}
       >
-        {/* HTML5 Video Element with No-Referrer Policy for Third-Party / TikTok Streams */}
-        <video
-          ref={videoRef}
-          onTimeUpdate={handleTimeUpdate}
-          onWaiting={handleWaiting}
-          onCanPlay={handleCanPlay}
-          onPlaying={handlePlaying}
-          onPause={handlePause}
-          playsInline
-          autoPlay
-          referrerPolicy="no-referrer"
-          crossOrigin="anonymous"
-          style={{ objectFit: zoomMode }}
-          className="w-full h-full absolute inset-0 z-0 bg-black"
-        />
+        {/* Render either HTML5 Video or Iframe Player */}
+        {useIframe ? (
+          <iframe
+            src={currentUrl}
+            className="w-full h-full absolute inset-0 z-0 bg-black border-0"
+            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowFullScreen
+          />
+        ) : (
+          <video
+            ref={videoRef}
+            onTimeUpdate={handleTimeUpdate}
+            onWaiting={() => setStatus({ type: 'buffering', text: 'Buffering...', subText: 'Loading buffer' })}
+            onPlaying={() => {
+              setIsPlaying(true);
+              setStatus({ type: 'playing', text: 'Playing', subText: title });
+            }}
+            onPause={() => setIsPlaying(false)}
+            playsInline
+            autoPlay
+            style={{ objectFit: zoomMode }}
+            className="w-full h-full absolute inset-0 z-0 bg-black"
+          />
+        )}
 
         {/* ACTIVE CHANNEL LOGO OVERLAY */}
         <div
@@ -549,31 +365,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
 
         {/* STATUS OVERLAY */}
-        {status.type !== 'playing' && (
+        {status.type !== 'playing' && !useIframe && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none">
             <div className="bg-black/90 backdrop-blur-md border border-white/15 px-5 py-3 rounded-2xl text-center shadow-2xl flex flex-col items-center gap-1.5 min-w-[200px]">
-              {status.type === 'loading' || status.type === 'buffering' ? (
-                <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
-              ) : status.type === 'error' ? (
-                <AlertTriangle className="w-6 h-6 text-red-400 animate-bounce" />
-              ) : (
-                <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-              )}
+              <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
               <span className="text-xs font-bold text-white">{status.text}</span>
               {status.subText && <span className="text-[10px] text-slate-400">{status.subText}</span>}
             </div>
           </div>
-        )}
-
-        {/* TAP TO SHOW CONTROLS LAYER */}
-        {!showControls && (
-          <div
-            className="absolute inset-0 z-30 cursor-pointer"
-            onClick={(e) => {
-              e.stopPropagation();
-              triggerControlsOverlay();
-            }}
-          />
         )}
 
         {/* CONTROLS OVERLAY */}
@@ -581,34 +380,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           className={`absolute inset-0 z-30 flex flex-col justify-between bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
             showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
           }`}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              e.stopPropagation();
-              setShowControls(false);
-              if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
-            }
-          }}
         >
-          {/* Top Bar: Close Button + Server Selector Pills */}
+          {/* Top Bar */}
           <div className="p-3.5 sm:p-4 flex items-center justify-between gap-2.5">
             <button
               onClick={onClose}
-              className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 text-white flex items-center justify-center transition-all focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-md"
-              title="Close Player"
+              className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center shadow-md"
             >
               <X className="w-6 h-6" />
             </button>
 
-            {/* Server Links Pills */}
             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
               {servers.map((srv, idx) => (
                 <button
                   key={idx}
                   onClick={() => setCurrentUrl(srv.url)}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-bold uppercase flex items-center gap-1.5 transition-all whitespace-nowrap active:scale-95 ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-bold uppercase flex items-center gap-1.5 ${
                     srv.url === currentUrl
-                      ? 'bg-blue-600 text-white border border-blue-400 shadow-lg shadow-blue-500/40'
-                      : 'bg-black/70 text-slate-200 border border-white/20 hover:bg-white/25'
+                      ? 'bg-blue-600 text-white border border-blue-400'
+                      : 'bg-black/70 text-slate-200 border border-white/20'
                   }`}
                 >
                   <Server className="w-3.5 h-3.5 text-blue-400" />
@@ -617,106 +407,54 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               ))}
             </div>
 
-            <div className="bg-blue-600/40 text-blue-300 border border-blue-400/50 px-3 py-1 rounded-full text-xs font-extrabold tracking-wider uppercase">
-              HLS
-            </div>
+            {/* Manual Switch Button to toggle Iframe Mode */}
+            <button
+              onClick={() => setUseIframe(!useIframe)}
+              className="bg-emerald-600/60 text-emerald-200 border border-emerald-400/50 px-3 py-1.5 rounded-full text-xs font-extrabold flex items-center gap-1"
+              title="Switch Player Engine"
+            >
+              <RefreshCw className="w-3 h-3" />
+              {useIframe ? 'WEB' : 'HLS'}
+            </button>
           </div>
 
-          {/* Bottom Controls Bar */}
-          <div className="p-3.5 sm:p-5 flex flex-col gap-3 bg-gradient-to-t from-black/95 via-black/85 to-transparent">
-            {/* Seek Bar */}
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-mono font-semibold text-slate-200 min-w-[42px] text-center">
-                {formatTime(currentTime)}
-              </span>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={duration > 0 ? (currentTime / duration) * 100 : 0}
-                onChange={handleSeek}
-                className="flex-1 h-2 sm:h-2.5 bg-white/25 rounded-lg appearance-none cursor-pointer accent-blue-500"
-              />
-              <span className="text-xs font-mono font-semibold text-slate-200 min-w-[42px] text-center">
-                {formatTime(duration)}
-              </span>
-            </div>
+          {/* Bottom Controls Bar (Only when not using Iframe) */}
+          {!useIframe && (
+            <div className="p-3.5 sm:p-5 flex flex-col gap-3 bg-gradient-to-t from-black/95 via-black/85 to-transparent">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono font-semibold text-slate-200 min-w-[42px] text-center">
+                  {formatTime(currentTime)}
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={duration > 0 ? (currentTime / duration) * 100 : 0}
+                  onChange={handleSeek}
+                  className="flex-1 h-2 sm:h-2.5 bg-white/25 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <span className="text-xs font-mono font-semibold text-slate-200 min-w-[42px] text-center">
+                  {formatTime(duration)}
+                </span>
+              </div>
 
-            {/* Buttons Row */}
-            <div className="flex items-center justify-between gap-2.5 pt-1">
-              {/* Left group */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={toggleMute}
-                  className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white flex items-center justify-center transition-all shadow-md"
-                  title={isMuted ? 'Unmute' : 'Mute'}
-                >
+              <div className="flex items-center justify-between gap-2.5 pt-1">
+                <button onClick={toggleMute} className="w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center">
                   {isMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5" />}
                 </button>
-                <button
-                  onClick={cycleSpeed}
-                  className="px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white text-xs font-extrabold transition-all shadow-md"
-                  title="Playback Speed"
-                >
-                  {playbackSpeed}x
-                </button>
-              </div>
 
-              {/* Center Playback Controls */}
-              <div className="flex items-center gap-2.5">
-                {onPrevChannel && (
-                  <button
-                    onClick={onPrevChannel}
-                    className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white flex items-center justify-center transition-all shadow-md"
-                    title="Previous Channel"
-                  >
-                    <SkipBack className="w-5 h-5 sm:w-6 sm:h-6" />
+                <div className="flex items-center gap-2.5">
+                  <button onClick={togglePlayPause} className="w-13 h-13 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-xl">
+                    {isPlaying ? <Pause className="w-7 h-7 fill-white" /> : <Play className="w-7 h-7 fill-white ml-0.5" />}
                   </button>
-                )}
-                <button
-                  onClick={togglePlayPause}
-                  className="w-13 h-13 sm:w-16 sm:h-16 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-xl shadow-blue-500/40 transition-all transform active:scale-95"
-                  title={isPlaying ? 'Pause' : 'Play'}
-                >
-                  {isPlaying ? <Pause className="w-7 h-7 sm:w-8 sm:h-8 fill-white" /> : <Play className="w-7 h-7 sm:w-8 sm:h-8 fill-white ml-0.5" />}
-                </button>
-                {onNextChannel && (
-                  <button
-                    onClick={onNextChannel}
-                    className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white flex items-center justify-center transition-all shadow-md"
-                    title="Next Channel"
-                  >
-                    <SkipForward className="w-5 h-5 sm:w-6 sm:h-6" />
-                  </button>
-                )}
-              </div>
+                </div>
 
-              {/* Right Controls */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={cycleZoomMode}
-                  className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white flex items-center justify-center transition-all shadow-md"
-                  title={`Zoom Mode: ${zoomMode.toUpperCase()}`}
-                >
-                  <Tv className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={togglePiP}
-                  className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white flex items-center justify-center transition-all shadow-md"
-                  title="Picture in Picture"
-                >
-                  <PictureInPicture2 className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={toggleFullscreen}
-                  className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white flex items-center justify-center transition-all shadow-md"
-                  title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                >
+                <button onClick={toggleFullscreen} className="w-10 h-10 rounded-full bg-white/15 text-white flex items-center justify-center">
                   {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
                 </button>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
