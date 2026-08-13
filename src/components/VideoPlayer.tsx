@@ -166,21 +166,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [isMuted]);
 
-  // 🚀 Android Intent হ্যান্ডলিং (MX Player, VLC ও Other Players)
+  // 🚀 ১০০% কার্যকরী Android Intent হ্যান্ডলিং (MX Player, VLC এবং System Chooser)
   const openInExternalApp = (target: 'mx' | 'vlc' | 'any') => {
-    const titleParam = encodeURIComponent(title);
-    
+    if (!currentUrl) return;
+
+    const encodedTitle = encodeURIComponent(title || 'Live Stream');
+    let intentUrl = '';
+
     if (target === 'mx') {
-      window.location.href = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=com.mxtech.videoplayer.ad;S.title=${titleParam};end;`;
+      intentUrl = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=com.mxtech.videoplayer.ad;S.title=${encodedTitle};end;`;
     } else if (target === 'vlc') {
-      window.location.href = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;S.title=${titleParam};end;`;
+      intentUrl = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;S.title=${encodedTitle};end;`;
     } else {
-      // 📱 Universal Intent Query for System App Chooser
-      window.location.href = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;S.title=${titleParam};end;`;
+      intentUrl = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;S.title=${encodedTitle};end;`;
     }
+
+    // Android WebView-এ নিশ্চিতভাবে Intent ট্রিগার করার নিয়ম
+    window.location.href = intentUrl;
   };
 
-  // 📱 ফুলস্ক্রিন ও অটো-রোটেট (Landscape Lock) হ্যান্ডলার
+  // 📱 ফুলস্ক্রিন ও অটো রোটেশন ফিক্স (সাদা মার্জিন দূর করা)
   const toggleFullscreen = async () => {
     const container = containerRef.current;
     if (!container) return;
@@ -194,7 +199,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
         setIsFullscreen(true);
 
-        // মোবাইল ডিসপ্লে অটোমেটিক ল্যান্ডস্কেপ (রোটেশন) করা
+        // অটো রোটেশন
         if (window.screen?.orientation && 'lock' in window.screen.orientation) {
           await (window.screen.orientation as any).lock('landscape').catch(() => {});
         }
@@ -210,7 +215,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
         setIsFullscreen(false);
 
-        // রোটেশন আনলক করা
         if (window.screen?.orientation && 'unlock' in window.screen.orientation) {
           (window.screen.orientation as any).unlock();
         }
@@ -248,14 +252,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }}
       onClick={toggleControls}
       className={`relative bg-black overflow-hidden select-none ${
-        isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen' : 'w-full aspect-video rounded-b-xl'
+        isFullscreen 
+          ? 'fixed inset-0 z-[9999] w-screen h-screen bg-black flex items-center justify-center' 
+          : 'w-full aspect-video rounded-b-xl bg-black'
       }`}
+      style={{ backgroundColor: '#000000' }}
     >
-      {/* ⚠️ স্ট্রিমিং এরর / External Player ওভারলে */}
+      {/* ⚠️ স্ট্রিমিং এরর / External Player অপশন */}
       {hasError && playerMode !== 'iframe' ? (
         <div 
           onClick={(e) => e.stopPropagation()} 
-          className="absolute inset-0 z-30 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center overflow-y-auto"
+          className="absolute inset-0 z-30 bg-black/95 flex flex-col items-center justify-center p-4 text-center overflow-y-auto"
         >
           <AlertTriangle className="w-10 h-10 text-amber-400 mb-2 animate-bounce" />
           <h3 className="text-white text-sm font-bold mb-1">ভিডিও প্লে হতে সমস্যা হচ্ছে?</h3>
@@ -294,7 +301,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       ) : null}
 
-      {/* 📺 ভিডিও অথবা আইফ্রেম মোড */}
+      {/* 📺 ভিডিও অথবা আইফ্রেম */}
       {playerMode === 'iframe' ? (
         <iframe
           src={currentUrl}
@@ -317,8 +324,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             setIsPlaying(false);
             setShowControls(true);
           }}
-          style={{ objectFit: zoomMode }}
-          className="w-full h-full absolute inset-0 z-0 bg-black cursor-pointer object-cover"
+          style={{ objectFit: zoomMode, backgroundColor: '#000000' }}
+          className="w-full h-full absolute inset-0 z-0 bg-black cursor-pointer"
           autoPlay
           playsInline
         />
@@ -353,7 +360,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ))}
           </div>
 
-          {/* প্লেয়ার মোড এবং App বাটন্স */}
           <div className="flex items-center gap-1">
             <select
               value={playerMode}
@@ -368,7 +374,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <button
               onClick={() => openInExternalApp('any')}
               className="bg-purple-600 hover:bg-purple-500 text-white px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1"
-              title="Open in App"
             >
               <Smartphone className="w-3 h-3" /> App
             </button>
@@ -397,7 +402,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
             </button>
 
-            {/* প্লে / পজ ও পরবর্তী/পূর্ববর্তী চ্যানেল */}
             <div className="flex items-center gap-3">
               {onPrevChannel && (
                 <button onClick={onPrevChannel} className="p-1.5 bg-white/10 rounded-full text-white active:scale-95 hover:bg-white/20 transition">
@@ -439,7 +443,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <Tv className="w-4 h-4" />
               </button>
               
-              {/* 📺 ফুলস্ক্রিন ও অটো-রোটেট বাটন */}
               <button onClick={toggleFullscreen} className="text-white p-1">
                 {isFullscreen ? <Minimize2 className="w-4 h-4 text-blue-400" /> : <Maximize2 className="w-4 h-4" />}
               </button>
