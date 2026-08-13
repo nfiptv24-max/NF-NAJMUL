@@ -38,7 +38,7 @@ jobs:
         npx cap add android
         npx cap sync android
 
-    - name: Force Java 21, SDK 36 & Fix Duplicate Classes
+    - name: Force Java 21, SDK 36, MinSDK 24 & Fix Duplicate Classes
       run: |
         echo "android.packaging.jniLibs.useLegacyPackaging=true" >> android/gradle.properties
         echo "org.gradle.java.home=${JAVA_HOME_21_X64}" >> android/gradle.properties
@@ -47,32 +47,34 @@ jobs:
         node -e '
           const fs = require("fs");
           
-          // 1. variables.gradle-এ SDK 36 সেট করা
+          // 1. variables.gradle-এ minSdkVersion 24 এবং compile/target 36 সেট করা
           const varsGradle = "android/variables.gradle";
           if (fs.existsSync(varsGradle)) {
             let content = fs.readFileSync(varsGradle, "utf8");
-            content = content.replace(/minSdkVersion\s*=\s*\d+/g, "minSdkVersion = 22");
+            content = content.replace(/minSdkVersion\s*=\s*\d+/g, "minSdkVersion = 24");
             content = content.replace(/compileSdkVersion\s*=\s*\d+/g, "compileSdkVersion = 36");
             content = content.replace(/targetSdkVersion\s*=\s*\d+/g, "targetSdkVersion = 36");
             fs.writeFileSync(varsGradle, content);
           }
 
-          // 2. capacitor-android build.gradle-এ Java 21 এবং SDK 36 সেট করা
+          // 2. capacitor-android build.gradle-এ Java 21 এবং SDK 36/24 সেট করা
           const capGradle = "node_modules/@capacitor/android/capacitor/build.gradle";
           if (fs.existsSync(capGradle)) {
             let content = fs.readFileSync(capGradle, "utf8");
             content = content.replace(/JavaVersion\.VERSION_17/g, "JavaVersion.VERSION_21");
             content = content.replace(/JavaVersion\.VERSION_11/g, "JavaVersion.VERSION_21");
+            content = content.replace(/minSdkVersion\s*=\s*\d+/g, "minSdkVersion = 24");
             content = content.replace(/compileSdkVersion\s*=\s*\d+/g, "compileSdkVersion = 36");
             fs.writeFileSync(capGradle, content);
           }
 
-          // 3. App level build.gradle-এ Java 21 সেট করা
+          // 3. App level build.gradle-এ Java 21 ও minSdkVersion 24 সেট করা
           const appGradle = "android/app/build.gradle";
           if (fs.existsSync(appGradle)) {
             let content = fs.readFileSync(appGradle, "utf8");
             content = content.replace(/JavaVersion\.VERSION_17/g, "JavaVersion.VERSION_21");
             content = content.replace(/JavaVersion\.VERSION_11/g, "JavaVersion.VERSION_21");
+            content = content.replace(/minSdkVersion\s*=\s*\d+/g, "minSdkVersion = 24");
             fs.writeFileSync(appGradle, content);
           }
         '
