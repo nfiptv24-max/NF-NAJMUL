@@ -13,32 +13,24 @@ import {
   RefreshCw,
   ExternalLink,
   Tv,
-  SkipBack,
-  SkipForward,
-  PlayCircle,
-  AlertTriangle,
   Radio
 } from 'lucide-react';
-import { ServerLink, ZoomMode } from '../types';
+import { ServerLink, PlayerStatus, ZoomMode } from '../types';
 
 interface VideoPlayerProps {
   streamUrl: string;
-  servers?: ServerLink[];
-  title?: string;
-  logo?: string;
+  servers: ServerLink[];
+  title: string;
+  logo: string;
   onClose: () => void;
-  onNextChannel?: () => void;
-  onPrevChannel?: () => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
-  streamUrl = '',
-  servers = [],
-  title = 'Live Stream',
-  logo = '',
-  onClose,
-  onNextChannel,
-  onPrevChannel
+  streamUrl,
+  servers,
+  title,
+  logo,
+  onClose
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,17 +40,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [useIframe, setUseIframe] = useState(false);
-  const [hasError, setHasError] = useState(false);
+  const [status, setStatus] = useState<PlayerStatus>({ type: 'loading', text: 'Connecting...' });
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [currentUrl, setCurrentUrl] = useState<string>(streamUrl || '');
+  const [currentUrl, setCurrentUrl] = useState(streamUrl);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [zoomMode, setZoomMode] = useState<ZoomMode>('contain');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
 
+  // লাইভ স্ট্রিম নাকি ভিওডি চেক
   const isLive = !isFinite(duration) || duration === 0;
 
-  // 👁️ টাইমার রিমুভ ও রিসেট হ্যান্ডলার
+  // 👁️ টাইমার হ্যান্ডলার (কন্ট্রোল বার অটো হাইড)
   const startControlsTimeout = () => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     if (isPlaying) {
@@ -68,7 +62,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // 👆 টাচ/ক্লিক করলে হাইড বা শো (Toggle) করার ফাংশন
+  // 👆 স্ক্রিনে টাচ করলে ম্যানুয়ালি টগল (Show/Hide)
   const toggleControls = (e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     if (showControls) {
@@ -89,178 +83,126 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isPlaying, showControls]);
 
-  // 📺 Fullscreen Change & Key Navigation
+  // লিংক পরিবর্তন হলে প্লেয়ার রিসেট
+  useEffect(() => {
+    setCurrentUrl(streamUrl);
+    setUseIframe(false);
+  }, [streamUrl]);
+
+  // ফুলস্ক্রিন চেইঞ্জ লিসেনার
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
     };
-
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      switch (e.key) {
-        case 'ArrowUp':
-        case 'PageUp':
-        case 'ChannelUp':
-          e.preventDefault();
-          if (onPrevChannel) {
-            onPrevChannel();
-            setShowControls(true);
-            startControlsTimeout();
-          }
-          break;
-
-        case 'ArrowDown':
-        case 'PageDown':
-        case 'ChannelDown':
-          e.preventDefault();
-          if (onNextChannel) {
-            onNextChannel();
-            setShowControls(true);
-            startControlsTimeout();
-          }
-          break;
-
-        case 'Enter':
-        case ' ':
-          if (isFullscreen) {
-            e.preventDefault();
-            if (videoRef.current) {
-              if (isPlaying) videoRef.current.pause();
-              else videoRef.current.play();
-            }
-            setShowControls(true);
-            startControlsTimeout();
-          }
-          break;
-
-        default:
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onNextChannel, onPrevChannel, isFullscreen, isPlaying]);
+  }, []);
 
-  const checkMixedContent = (url: string) => {
-    if (!url) return false;
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && url.startsWith('http://')) {
-      return true;
-    }
-    return false;
-  };
-
-  useEffect(() => {
-    const validUrl = streamUrl || '';
-    setCurrentUrl(validUrl);
-    setUseIframe(false);
-    setHasError(checkMixedContent(validUrl));
-  }, [streamUrl]);
-
+  // প্লেয়ার ক্লিনআপ
   const cleanupPlayer = () => {
-    try {
-      if (hlsRef.current) {
-        hlsRef.current.destroy();
-        hlsRef.current = null;
-      }
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.removeAttribute('src');
-        videoRef.current.load();
-      }
-    } catch (err) {
-      console.error("Cleanup error:", err);
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.removeAttribute('src');
+      videoRef.current.load();
     }
   };
 
+  // প্লেয়ার ইঞ্জিন (HLS or Iframe)
   useEffect(() => {
     cleanupPlayer();
-
-    if (useIframe || !currentUrl) return;
-
-    if (checkMixedContent(currentUrl)) {
-      setHasError(true);
-      return;
-    }
+    if (useIframe) return;
 
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !currentUrl) return;
 
-    try {
-      const urlLower = currentUrl.toLowerCase();
-      if (Hls.isSupported() && urlLower.includes('.m3u8')) {
-        const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-        hlsRef.current = hls;
-        hls.loadSource(currentUrl);
-        hls.attachMedia(video);
+    if (Hls.isSupported() && currentUrl.toLowerCase().includes('.m3u8')) {
+      const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hlsRef.current = hls;
+      hls.loadSource(currentUrl);
+      hls.attachMedia(video);
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play().then(() => setIsPlaying(true)).catch(() => setHasError(true));
-        });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().then(() => setIsPlaying(true)).catch(() => {});
+      });
 
-        hls.on(Hls.Events.ERROR, () => {
-          setHasError(true);
-        });
-      } else {
-        video.src = currentUrl;
-        video.play().then(() => setIsPlaying(true)).catch(() => setHasError(true));
-      }
-    } catch (err) {
-      console.error("Playback error:", err);
-      setHasError(true);
+      hls.on(Hls.Events.ERROR, () => {
+        setUseIframe(true);
+      });
+    } else {
+      video.src = currentUrl;
+      video.play().then(() => setIsPlaying(true)).catch(() => setUseIframe(true));
     }
 
     return () => cleanupPlayer();
   }, [currentUrl, useIframe]);
 
-  const openInExternalApp = (packageName?: string) => {
-    if (!currentUrl) return;
-
-    const rawUrl = currentUrl.replace(/^https?:\/\//, '');
-    const scheme = currentUrl.startsWith('https://') ? 'https' : 'http';
-    const encodedTitle = encodeURIComponent(title);
-
-    let intentUrl = '';
-
-    if (packageName) {
-      intentUrl = `intent://${rawUrl}#Intent;` +
-        `action=android.intent.action.VIEW;` +
-        `type=video/*;` +
-        `package=${packageName};` +
-        `S.title=${encodedTitle};` +
-        `scheme=${scheme};` +
-        `end;`;
-    } else {
-      intentUrl = `intent://${rawUrl}#Intent;` +
-        `action=android.intent.action.VIEW;` +
-        `type=video/*;` +
-        `S.title=${encodedTitle};` +
-        `scheme=${scheme};` +
-        `end;`;
+  // প্লে / পজ টগল
+  const togglePlayPause = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play().catch(() => {});
+      }
     }
-
-    window.location.href = intentUrl;
   };
 
-  const toggleFullscreen = () => {
-    if (!containerRef.current) return;
+  // মিউট টগল
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
+    }
+  };
 
+  // স্পিড পরিবর্তন
+  const cycleSpeed = () => {
+    const speeds = [1.0, 1.25, 1.5, 2.0, 0.5];
+    const nextSpeed = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
+    setPlaybackSpeed(nextSpeed);
+    if (videoRef.current) videoRef.current.playbackRate = nextSpeed;
+  };
+
+  // জুম মোড পরিবর্তন (Aspect Ratio)
+  const cycleZoomMode = () => {
+    const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
+    setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
+  };
+
+  // ফুলস্ক্রিন টগল
+  const toggleFullscreen = async () => {
+    if (!containerRef.current) return;
     if (!document.fullscreenElement) {
       if (containerRef.current.requestFullscreen) {
-        containerRef.current.requestFullscreen();
+        await containerRef.current.requestFullscreen().catch(() => {});
       } else if ((containerRef.current as any).webkitRequestFullscreen) {
         (containerRef.current as any).webkitRequestFullscreen();
       }
     } else {
       if (document.exitFullscreen) {
-        document.exitFullscreen();
+        await document.exitFullscreen().catch(() => {});
       } else if ((document as any).webkitExitFullscreen) {
         (document as any).webkitExitFullscreen();
       }
+    }
+  };
+
+  // VLC প্লেয়ারে স্ট্রিমিং ওপেন করার অপশন
+  const openInVLC = () => {
+    const vlcIntentUrl = `vlc://${currentUrl}`;
+    window.location.href = vlcIntentUrl;
+  };
+
+  const handleTimeUpdate = () => {
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime);
+      setDuration(videoRef.current.duration || 0);
     }
   };
 
@@ -271,142 +213,101 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       className={`bg-black overflow-hidden select-none transition-all ${
         isFullscreen
           ? 'fixed inset-0 z-[9999999] w-screen h-screen'
-          : 'fixed top-0 left-0 right-0 z-[9999] w-full aspect-video shadow-2xl'
+          : 'fixed top-0 left-0 right-0 z-[9999] w-full aspect-video shadow-2xl rounded-b-xl'
       }`}
     >
-      {/* ১. নো ইউআরএল মেসেজ */}
-      {!currentUrl && (
-        <div className="absolute inset-0 z-40 bg-slate-900 flex flex-col items-center justify-center p-4 text-center text-white">
-          <AlertTriangle className="w-8 h-8 text-yellow-400 mb-2" />
-          <p className="text-sm font-semibold">No Video Stream URL Found!</p>
-          <button onClick={onClose} className="mt-3 px-4 py-1.5 bg-red-600 rounded-lg text-xs font-bold">
-            Close Player
-          </button>
-        </div>
-      )}
-
-      {/* ২. এরর স্ক্রিন */}
-      {hasError && !useIframe && currentUrl ? (
-        <div className="absolute inset-0 z-30 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center">
-          <AlertTriangle className="w-10 h-10 text-amber-400 mb-2 animate-bounce" />
-          <h3 className="text-white text-sm font-bold mb-1">Stream Blocked or Offline</h3>
-          <p className="text-slate-400 text-xs mb-4 max-w-xs">
-            সরাসরি প্লে হচ্ছে না। আপনার পছন্দের প্লেয়ার বেছে নিন।
-          </p>
-          <div className="flex flex-wrap gap-2 justify-center">
-            <button
-              onClick={() => openInExternalApp('com.genuine.leone')}
-              className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow"
-            >
-              <PlayCircle className="w-4 h-4" /> Stream Player
-            </button>
-
-            <button
-              onClick={() => openInExternalApp()}
-              className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow"
-            >
-              <ExternalLink className="w-4 h-4" /> Any Player
-            </button>
-
-            <button
-              onClick={() => setUseIframe(true)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow"
-            >
-              <RefreshCw className="w-4 h-4" /> Web Iframe
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {/* ৩. ভিডিও / আইফ্রেম Element */}
+      {/* ভিডিও এলিমেন্ট অথবা আইফ্রেম */}
       {useIframe ? (
         <iframe
           src={currentUrl}
           className="w-full h-full border-0 absolute inset-0 z-0 bg-black"
           allowFullScreen
+          allow="autoplay; encrypted-media; picture-in-picture"
         />
       ) : (
         <video
           ref={videoRef}
-          muted={isMuted}
-          onError={() => setHasError(true)}
-          onTimeUpdate={() => {
-            if (videoRef.current) {
-              setCurrentTime(videoRef.current.currentTime || 0);
-              setDuration(videoRef.current.duration || 0);
-            }
-          }}
+          onTimeUpdate={handleTimeUpdate}
           onPlaying={() => setIsPlaying(true)}
-          onPause={() => {
-            setIsPlaying(false);
-            setShowControls(true);
-          }}
+          onPause={() => setIsPlaying(false)}
           style={{ objectFit: zoomMode }}
-          className="w-full h-full absolute inset-0 z-0 bg-black object-contain"
+          className="w-full h-full absolute inset-0 z-0 bg-black"
           autoPlay
           playsInline
         />
       )}
 
-      {/* ৪. প্লেয়ার কন্ট্রোল ওভারলে */}
+      {/* কন্ট্রোল ওভারলে (Show/Hide Animation) */}
       <div
-        className={`absolute inset-0 z-10 flex flex-col justify-between p-2 sm:p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
+        className={`absolute inset-0 z-10 flex flex-col justify-between p-3 sm:p-4 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
           showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
-        {/* টপ বার */}
+        {/* টপ বার (বন্ধ বাটন, সার্ভিস সুইচ, VLC বাটন, WEB/HLS বাটন) */}
         <div className="flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
-          <button onClick={onClose} className="bg-black/60 hover:bg-white/20 p-1.5 rounded-full text-white">
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
+          <button
+            onClick={onClose}
+            className="bg-black/60 hover:bg-white/20 p-2 rounded-full text-white transition"
+            title="Close"
+          >
+            <X className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar max-w-[45%]">
-            {Array.isArray(servers) && servers.map((srv, idx) => (
+          {/* সার্ভার সিলেক্টর */}
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-[45%] no-scrollbar">
+            {servers && servers.map((srv, idx) => (
               <button
                 key={idx}
-                onClick={() => setCurrentUrl(srv.url || '')}
-                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-bold whitespace-nowrap transition ${
-                  srv.url === currentUrl ? 'bg-blue-600 text-white' : 'bg-black/60 text-slate-300'
+                onClick={() => setCurrentUrl(srv.url)}
+                className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 whitespace-nowrap transition ${
+                  srv.url === currentUrl ? 'bg-blue-600 text-white' : 'bg-black/60 text-slate-300 hover:bg-black/80'
                 }`}
               >
-                <Server className="w-3 h-3 inline mr-1" />
+                <Server className="w-3 h-3" />
                 {srv.name || `Server ${idx + 1}`}
               </button>
             ))}
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
+            {/* VLC Player এ ওপেন করার অপশন */}
             <button
-              onClick={() => openInExternalApp()}
-              className="bg-purple-600 hover:bg-purple-500 text-white px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md text-[10px] sm:text-[11px] font-bold flex items-center gap-1 shadow"
+              onClick={openInVLC}
+              className="bg-orange-600 hover:bg-orange-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition"
+              title="Open stream in VLC App"
             >
-              <PlayCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Player
+              <ExternalLink className="w-3 h-3" /> VLC
             </button>
+
+            {/* WEB (Iframe) / HLS টগল বাটন */}
             <button
               onClick={() => setUseIframe(!useIframe)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 sm:py-1 rounded-md text-[10px] sm:text-[11px] font-bold"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition"
             >
-              {useIframe ? 'HLS' : 'WEB'}
+              <RefreshCw className="w-3 h-3" /> {useIframe ? 'WEB' : 'HLS'}
             </button>
           </div>
         </div>
 
-        {/* বটম বার */}
+        {/* বটম কন্ট্রোল বার (শুধু HLS/Video মোডে দেখাবে) */}
         {!useIframe && (
-          <div className="flex flex-col gap-1.5 bg-black/75 backdrop-blur-md p-2 rounded-lg" onClick={(e) => e.stopPropagation()}>
+          <div className="flex flex-col gap-2 bg-black/60 backdrop-blur-md p-3 rounded-xl" onClick={(e) => e.stopPropagation()}>
+            {/* সিক বার অথবা LIVE индикатор */}
             {!isLive ? (
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={duration > 0 ? (currentTime / duration) * 100 : 0}
-                onChange={(e) => {
-                  if (videoRef.current && duration > 0) {
-                    videoRef.current.currentTime = (parseFloat(e.target.value) / 100) * duration;
-                  }
-                }}
-                className="w-full h-1 bg-white/30 rounded cursor-pointer accent-blue-500"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={duration > 0 ? (currentTime / duration) * 100 : 0}
+                  onChange={(e) => {
+                    if (videoRef.current && duration > 0) {
+                      videoRef.current.currentTime = (parseFloat(e.target.value) / 100) * duration;
+                    }
+                  }}
+                  className="w-full h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
             ) : (
               <div className="flex items-center gap-1.5 text-xs text-red-500 font-bold px-1">
                 <Radio className="w-3.5 h-3.5 animate-pulse" />
@@ -414,48 +315,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             )}
 
+            {/* বাটনসমূহ */}
             <div className="flex items-center justify-between">
-              <button onClick={() => setIsMuted(!isMuted)} className="text-white p-1">
-                {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
-              </button>
-
-              <div className="flex items-center gap-2 sm:gap-3">
-                {onPrevChannel && (
-                  <button onClick={onPrevChannel} className="p-1 sm:p-1.5 bg-white/10 rounded-full text-white">
-                    <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  </button>
-                )}
-                <button
-                  onClick={() => {
-                    if (videoRef.current) {
-                      if (isPlaying) videoRef.current.pause();
-                      else videoRef.current.play();
-                    }
-                  }}
-                  className="p-1.5 sm:p-2 bg-blue-600 rounded-full text-white shadow-lg hover:bg-blue-500"
-                >
-                  {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />}
+              <div className="flex items-center gap-2">
+                <button onClick={togglePlayPause} className="text-white hover:text-blue-400 p-1 transition">
+                  {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                 </button>
-                {onNextChannel && (
-                  <button onClick={onNextChannel} className="p-1 sm:p-1.5 bg-white/10 rounded-full text-white">
-                    <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <button onClick={toggleMute} className="text-white hover:text-blue-400 p-1 transition">
+                  {isMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5" />}
+                </button>
+                {!isLive && (
+                  <button
+                    onClick={cycleSpeed}
+                    className="text-white text-xs font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded-md transition"
+                  >
+                    {playbackSpeed}x
                   </button>
                 )}
               </div>
 
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => {
-                    const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
-                    setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
-                  }}
-                  className="text-white p-1"
-                  title="Aspect Ratio"
-                >
-                  <Tv className="w-4 h-4" />
+              <div className="flex items-center gap-2">
+                <button onClick={cycleZoomMode} className="text-white hover:text-blue-400 p-1 transition" title="Aspect Ratio">
+                  <Tv className="w-5 h-5" />
                 </button>
-                <button onClick={toggleFullscreen} className="text-white p-1">
-                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                <button onClick={toggleFullscreen} className="text-white hover:text-blue-400 p-1 transition">
+                  {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
                 </button>
               </div>
             </div>
@@ -465,6 +349,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     </div>
   );
 
+  // Portal রেন্ডারিং
   if (typeof document !== 'undefined') {
     return createPortal(playerContent, document.body);
   }
