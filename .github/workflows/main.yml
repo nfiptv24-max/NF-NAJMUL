@@ -11,40 +11,43 @@ jobs:
 
     steps:
     - name: Checkout Source Code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: 20
 
     - name: Setup Java JDK
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
-        java-version: '21'
-
-    - name: Clean Dependencies & Cache
-      run: |
-        rm -rf package-lock.json node_modules
+        java-version: '17'
 
     - name: Install Dependencies
-      run: npm install
-
-    - name: Add Capacitor Android
       run: |
-        npm install @capacitor/core @capacitor/cli @capacitor/android
-        npx cap init "NAFI TV 24" "com.nafitv24.app" --web-dir dist || true
+        npm ci || npm install
 
     - name: Build Web Assets
       run: npm run build
 
-    - name: Sync Capacitor Android
+    - name: Add & Sync Capacitor Android
       run: |
+        npm install @capacitor/core @capacitor/cli @capacitor/android
+        npx cap init "NAFI TV 24" "com.nafitv24.app" --web-dir dist || true
         npx cap add android || true
         npx cap sync android
 
-    - name: Fix Kotlin Conflict
+    - name: Ensure Android Manifest Queries Exists
+      run: |
+        MANIFEST="android/app/src/main/AndroidManifest.xml"
+        if [ -f "$MANIFEST" ]; then
+          if ! grep -q "<queries>" "$MANIFEST"; then
+            sed -i 's|</manifest>|<queries><package android:name="com.mxtech.videoplayer.ad"/><package android:name="com.mxtech.videoplayer.pro"/><package android:name="org.videolan.vlc"/><intent><action android:name="android.intent.action.VIEW"/><data android:mimeType="video/*"/></intent><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="http"/></intent><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent></queries></manifest>|g' "$MANIFEST"
+          fi
+        fi
+
+    - name: Fix Kotlin & Gradle Settings
       run: |
         echo "android.packaging.jniLibs.useLegacyPackaging=true" >> android/gradle.properties
         echo "configurations.all { resolutionStrategy { force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22', 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22' } }" >> android/app/build.gradle
