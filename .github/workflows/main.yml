@@ -44,38 +44,13 @@ jobs:
         npx cap add android || true
         npx cap sync android
 
-    # 🚀 Node.js ব্যবহার করে পারমিশন ইনজেক্ট (কোনো YAML বা Bash Error হবে না)
     - name: Inject Android Permissions & Queries
       run: |
-        node -e '
-        const fs = require("fs");
-        const path = "android/app/src/main/AndroidManifest.xml";
-        if (fs.existsSync(path)) {
-          let content = fs.readFileSync(path, "utf8");
-          const queries = `
-    <queries>
-        <package android:name="com.mxtech.videoplayer.ad" />
-        <package android:name="com.mxtech.videoplayer.pro" />
-        <package android:name="org.videolan.vlc" />
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:mimeType="video/*" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="http" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" />
-        </intent>
-    </queries>
-  </manifest>`;
-          content = content.replace("</manifest>", queries);
-          fs.writeFileSync(path, content);
-          console.log("Queries injected successfully!");
-        }
-        '
+        MANIFEST="android/app/src/main/AndroidManifest.xml"
+        if [ -f "$MANIFEST" ]; then
+          sed -i 's|</manifest>|<queries><package android:name="com.mxtech.videoplayer.ad"/><package android:name="com.mxtech.videoplayer.pro"/><package android:name="org.videolan.vlc"/><intent><action android:name="android.intent.action.VIEW"/><data android:mimeType="video/*"/></intent><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="http"/></intent><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent></queries></manifest>|g' "$MANIFEST"
+          echo "Queries successfully injected!"
+        fi
 
     - name: Fix Kotlin Conflict
       run: |
