@@ -16,13 +16,13 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 22
+        node-version: 20
 
     - name: Setup Java JDK
       uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
-        java-version: '21'
+        java-version: '17'
 
     - name: Install Dependencies
       run: npm install
@@ -30,11 +30,12 @@ jobs:
     - name: Build Web Assets
       run: npm run build
 
-    - name: Add & Sync Capacitor Android
+    - name: Setup & Add Capacitor Android Platform
       run: |
         npm install @capacitor/core @capacitor/cli @capacitor/android
         npx cap init "NAFI TV 24" "com.nafitv24.app" --web-dir dist || true
-        npx cap add android || true
+        rm -rf android
+        npx cap add android
         npx cap sync android
 
     - name: Fix Android Manifest Queries
@@ -56,6 +57,9 @@ jobs:
     - name: Build Android Debug APK
       run: |
         cd android
+        if [ ! -f "gradlew" ]; then
+          gradle wrapper
+        fi
         chmod +x gradlew
         ./gradlew assembleDebug --no-daemon
 
