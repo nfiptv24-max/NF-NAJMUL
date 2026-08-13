@@ -16,17 +16,16 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 22
 
     - name: Setup Java JDK
       uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
-        java-version: '17'
+        java-version: '21'
 
     - name: Install Dependencies
-      run: |
-        npm ci || npm install
+      run: npm install
 
     - name: Build Web Assets
       run: npm run build
@@ -38,25 +37,27 @@ jobs:
         npx cap add android || true
         npx cap sync android
 
-    - name: Ensure Android Manifest Queries Exists
+    - name: Fix Android Manifest Queries
       run: |
         MANIFEST="android/app/src/main/AndroidManifest.xml"
         if [ -f "$MANIFEST" ]; then
-          if ! grep -q "<queries>" "$MANIFEST"; then
-            sed -i 's|</manifest>|<queries><package android:name="com.mxtech.videoplayer.ad"/><package android:name="com.mxtech.videoplayer.pro"/><package android:name="org.videolan.vlc"/><intent><action android:name="android.intent.action.VIEW"/><data android:mimeType="video/*"/></intent><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="http"/></intent><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent></queries></manifest>|g' "$MANIFEST"
-          fi
+          node -e '
+            const fs = require("fs");
+            const file = "android/app/src/main/AndroidManifest.xml";
+            let content = fs.readFileSync(file, "utf8");
+            if (!content.includes("<queries>")) {
+              const queries = `\n    <queries>\n        <package android:name="com.mxtech.videoplayer.ad" />\n        <package android:name="com.mxtech.videoplayer.pro" />\n        <package android:name="org.videolan.vlc" />\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:mimeType="video/*" />\n        </intent>\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:scheme="http" />\n        </intent>\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:scheme="https" />\n        </intent>\n    </queries>\n</manifest>`;
+              content = content.replace("</manifest>", queries);
+              fs.writeFileSync(file, content);
+            }
+          '
         fi
-
-    - name: Fix Kotlin & Gradle Settings
-      run: |
-        echo "android.packaging.jniLibs.useLegacyPackaging=true" >> android/gradle.properties
-        echo "configurations.all { resolutionStrategy { force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22', 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22' } }" >> android/app/build.gradle
 
     - name: Build Android Debug APK
       run: |
         cd android
         chmod +x gradlew
-        ./gradlew assembleDebug
+        ./gradlew assembleDebug --no-daemon
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
