@@ -16,12 +16,10 @@ import {
   SkipForward,
   PlayCircle,
   AlertTriangle,
-  Smartphone,
-  Layers
+  Smartphone
 } from 'lucide-react';
 import { ServerLink, ZoomMode } from '../types';
 
-// সাপোর্ট করা সকল প্লেয়ার মোড
 type PlayerMode = 'hls' | 'dash' | 'native' | 'iframe' | 'external';
 
 interface VideoPlayerProps {
@@ -58,10 +56,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  // 👁️ কন্ট্রোল বার অটো-হাইড স্টেট
   const [showControls, setShowControls] = useState(true);
 
-  // ৩ সেকেন্ড পর অটো হাইড করার লজিক
   const resetControlsTimeout = () => {
     setShowControls(true);
     if (controlsTimeoutRef.current) {
@@ -74,7 +70,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // 📱/🖱️ স্ক্রিনে টাচ বা ক্লিক করলে কন্ট্রোল বার টগল (Show/Hide) হবে
   const toggleControls = () => {
     if (showControls) {
       setShowControls(false);
@@ -91,7 +86,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isPlaying]);
 
-  // Mixed Content Check
   const checkMixedContent = (url: string) => {
     return window.location.protocol === 'https:' && url.startsWith('http://');
   };
@@ -100,7 +94,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setCurrentUrl(streamUrl);
     setHasError(checkMixedContent(streamUrl));
     
-    // অটোমেটিক বেস্ট মোড ডিটেকশন
     if (streamUrl.toLowerCase().includes('.mpd')) {
       setPlayerMode('dash');
     } else if (streamUrl.toLowerCase().includes('.m3u8')) {
@@ -124,7 +117,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // 🎬 বিভিন্ন প্লেয়ার মোড লোড করার লজিক
   useEffect(() => {
     cleanupPlayer();
     setHasError(false);
@@ -139,7 +131,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video || !currentUrl) return;
 
-    // ১. HLS Stream Mode
     if (playerMode === 'hls' && Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
       hlsRef.current = hls;
@@ -157,9 +148,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) setHasError(true);
       });
-    } 
-    // ২. MP4, Direct Link, FLV বা Native Engine Mode
-    else {
+    } else {
       video.src = currentUrl;
       video.play().then(() => setIsPlaying(true)).catch(() => {
         video.muted = true;
@@ -171,70 +160,82 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => cleanupPlayer();
   }, [currentUrl, playerMode]);
 
-  // Mute / Unmute Syncing
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = isMuted;
     }
   }, [isMuted]);
 
-  // 🚀 Android Intent দিয়ে বিশ্বমানের সকল এক্সটার্নাল অ্যাপ অপশন হ্যান্ডেল করা
+  // 🚀 Android Intent হ্যান্ডলিং (MX Player, VLC ও Other Players)
   const openInExternalApp = (target: 'mx' | 'vlc' | 'any') => {
     const titleParam = encodeURIComponent(title);
     
     if (target === 'mx') {
       window.location.href = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=com.mxtech.videoplayer.ad;S.title=${titleParam};end;`;
     } else if (target === 'vlc') {
-      window.location.href = `vlc://${currentUrl}`;
+      window.location.href = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;S.title=${titleParam};end;`;
     } else {
-      // 📱 যেকোনো External Player (System App Chooser Popup)
-      const genericIntent = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;S.title=${titleParam};end;`;
-      window.location.href = genericIntent;
+      // 📱 Universal Intent Query for System App Chooser
+      window.location.href = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;S.title=${titleParam};end;`;
     }
   };
 
-  // Fullscreen Handler
+  // 📱 ফুলস্ক্রিন ও অটো-রোটেট (Landscape Lock) হ্যান্ডলার
   const toggleFullscreen = async () => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     if (!document.fullscreenElement) {
-      await containerRef.current.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
-
-      if (window.screen?.orientation && 'lock' in window.screen.orientation) {
-        try {
-          await (window.screen.orientation as any).lock('landscape');
-        } catch (e) {
-          console.warn('Orientation lock failed:', e);
+      try {
+        if (container.requestFullscreen) {
+          await container.requestFullscreen();
+        } else if ((container as any).webkitRequestFullscreen) {
+          await (container as any).webkitRequestFullscreen();
         }
+        setIsFullscreen(true);
+
+        // মোবাইল ডিসপ্লে অটোমেটিক ল্যান্ডস্কেপ (রোটেশন) করা
+        if (window.screen?.orientation && 'lock' in window.screen.orientation) {
+          await (window.screen.orientation as any).lock('landscape').catch(() => {});
+        }
+      } catch (err) {
+        setIsFullscreen(!isFullscreen);
       }
     } else {
-      if (window.screen?.orientation && 'unlock' in window.screen.orientation) {
-        try {
-          window.screen.orientation.unlock();
-        } catch (e) {}
-      }
+      try {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        }
+        setIsFullscreen(false);
 
-      await document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
+        // রোটেশন আনলক করা
+        if (window.screen?.orientation && 'unlock' in window.screen.orientation) {
+          (window.screen.orientation as any).unlock();
+        }
+      } catch (err) {
+        setIsFullscreen(false);
+      }
     }
   };
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
-        setIsFullscreen(false);
-        if (window.screen?.orientation && 'unlock' in window.screen.orientation) {
-          try {
-            window.screen.orientation.unlock();
-          } catch (e) {}
-        }
+      const isFull = !!document.fullscreenElement || !!(document as any).webkitFullscreenElement;
+      setIsFullscreen(isFull);
+      if (!isFull && window.screen?.orientation && 'unlock' in window.screen.orientation) {
+        try {
+          (window.screen.orientation as any).unlock();
+        } catch (e) {}
       }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
     };
   }, []);
 
@@ -250,7 +251,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen' : 'w-full aspect-video rounded-b-xl'
       }`}
     >
-      {/* ⚠️ স্ট্রিমিং এরর / External Player অপশন ওভারলে */}
+      {/* ⚠️ স্ট্রিমিং এরর / External Player ওভারলে */}
       {hasError && playerMode !== 'iframe' ? (
         <div 
           onClick={(e) => e.stopPropagation()} 
@@ -293,7 +294,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       ) : null}
 
-      {/* 📺 বিভিন্ন প্লেয়ার মোড অনুযায়ী ভিডিও বা আইফ্রেম রেন্ডার */}
+      {/* 📺 ভিডিও অথবা আইফ্রেম মোড */}
       {playerMode === 'iframe' ? (
         <iframe
           src={currentUrl}
@@ -317,13 +318,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             setShowControls(true);
           }}
           style={{ objectFit: zoomMode }}
-          className="w-full h-full absolute inset-0 z-0 bg-black cursor-pointer"
+          className="w-full h-full absolute inset-0 z-0 bg-black cursor-pointer object-cover"
           autoPlay
           playsInline
         />
       )}
 
-      {/* 🎛️ সার্বজনীন কন্ট্রোল বার ওভারলে (সকল মোডেই দৃশ্যমান থাকবে) */}
+      {/* 🎛️ কন্ট্রোল ওভারলে */}
       <div
         onClick={(e) => e.stopPropagation()} 
         className={`absolute inset-0 z-20 flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
@@ -352,9 +353,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ))}
           </div>
 
-          {/* মোড সিলেকশন ও External App বাটন */}
+          {/* প্লেয়ার মোড এবং App বাটন্স */}
           <div className="flex items-center gap-1">
-            {/* প্লেয়ার মোড সিলেক্টর (HLS, DASH, WEB, IFRAME) */}
             <select
               value={playerMode}
               onChange={(e) => setPlayerMode(e.target.value as PlayerMode)}
@@ -375,9 +375,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
 
-        {/* বটম কন্ট্রোল বার (সকল মোড এবং HLS মোডেই কাজ করবে) */}
+        {/* বটম কন্ট্রোল বার */}
         <div className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl">
-          {/* সিক বার (যদি ডুরেশন থাকে) */}
           {duration > 0 && playerMode !== 'iframe' && (
             <input
               type="range"
@@ -398,7 +397,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
             </button>
 
-            {/* চ্যানেল নেভিগেশন (Next / Previous Channel) - সকল মোডেই অন থাকবে */}
+            {/* প্লে / পজ ও পরবর্তী/পূর্ববর্তী চ্যানেল */}
             <div className="flex items-center gap-3">
               {onPrevChannel && (
                 <button onClick={onPrevChannel} className="p-1.5 bg-white/10 rounded-full text-white active:scale-95 hover:bg-white/20 transition">
@@ -435,11 +434,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
                 }}
                 className="text-white p-1"
+                title="Aspect Ratio"
               >
                 <Tv className="w-4 h-4" />
               </button>
+              
+              {/* 📺 ফুলস্ক্রিন ও অটো-রোটেট বাটন */}
               <button onClick={toggleFullscreen} className="text-white p-1">
-                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                {isFullscreen ? <Minimize2 className="w-4 h-4 text-blue-400" /> : <Maximize2 className="w-4 h-4" />}
               </button>
             </div>
           </div>
