@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+
+      import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import {
   X,
@@ -11,7 +12,11 @@ import {
   Server,
   RefreshCw,
   ExternalLink,
-  Tv
+  Tv,
+  SkipBack,
+  SkipForward,
+  PlayCircle,
+  ShieldCheck
 } from 'lucide-react';
 import { ServerLink, PlayerStatus, ZoomMode } from '../types';
 
@@ -21,6 +26,8 @@ interface VideoPlayerProps {
   title: string;
   logo: string;
   onClose: () => void;
+  onNextChannel?: () => void;
+  onPrevChannel?: () => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -28,7 +35,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   servers,
   title,
   logo,
-  onClose
+  onClose,
+  onNextChannel,
+  onPrevChannel
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -37,21 +46,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [useIframe, setUseIframe] = useState(false);
-  const [status, setStatus] = useState<PlayerStatus>({ type: 'loading', text: 'Connecting...' });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentUrl, setCurrentUrl] = useState(streamUrl);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [zoomMode, setZoomMode] = useState<ZoomMode>('contain');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [securityActive, setSecurityActive] = useState(false);
 
-  // লিংক পরিবর্তন হলে প্লেয়ার রিসেট
   useEffect(() => {
     setCurrentUrl(streamUrl);
     setUseIframe(false);
   }, [streamUrl]);
 
-  // প্লেয়ার ক্লিনআপ
   const cleanupPlayer = () => {
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -64,7 +71,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // প্লেয়ার ইঞ্জিন (HLS or Iframe)
   useEffect(() => {
     cleanupPlayer();
     if (useIframe) return;
@@ -83,7 +89,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
 
       hls.on(Hls.Events.ERROR, () => {
-        setUseIframe(true); // HLS ফেল করলে অটোমেটিক Iframe-এ সুইচ করবে
+        setUseIframe(true);
       });
     } else {
       video.src = currentUrl;
@@ -93,7 +99,33 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => cleanupPlayer();
   }, [currentUrl, useIframe]);
 
-  // প্লে / পজ টগল
+  // 🛡️ সিকিউরিটি থার্ড পার্টি মোড চালু সহ Stream Player (com.genuine.leone) ওপেন
+  const openInSecureStreamPlayer = () => {
+    setSecurityActive(true);
+
+    // Intent Flags: Launch outside app context, keep current task active, secure stream intent
+    const intentFlags = 'FLAG_ACTIVITY_NEW_TASK|FLAG_ACTIVITY_CLEAR_TOP|FLAG_ACTIVITY_MULTIPLE_TASK';
+    
+    // Android Intent with Security Metadata
+    const intentUrl = `intent:${currentUrl}#Intent;` +
+      `action=android.intent.action.VIEW;` +
+      `type=video/*;` +
+      `package=com.genuine.leone;` +
+      `component=com.genuine.leone/.ui.splash.SplashActivity;` +
+      `S.title=${encodeURIComponent(title)};` +
+      `B.secure_mode=true;` +
+      `launchFlags=0x10000000;` +
+      `end;`;
+
+    // Trigger Stream Player
+    window.location.href = intentUrl;
+  };
+
+  const openInVLC = () => {
+    setSecurityActive(true);
+    window.location.href = `vlc://${currentUrl}`;
+  };
+
   const togglePlayPause = () => {
     if (videoRef.current) {
       if (isPlaying) {
@@ -104,7 +136,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // মিউট টগল
   const toggleMute = () => {
     if (videoRef.current) {
       videoRef.current.muted = !isMuted;
@@ -112,7 +143,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // স্পিড পরিবর্তন
   const cycleSpeed = () => {
     const speeds = [1.0, 1.25, 1.5, 2.0, 0.5];
     const nextSpeed = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
@@ -120,13 +150,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (videoRef.current) videoRef.current.playbackRate = nextSpeed;
   };
 
-  // জুম মোড পরিবর্তন (Aspect Ratio)
   const cycleZoomMode = () => {
     const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
     setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
   };
 
-  // ফুলস্ক্রিন টগল
   const toggleFullscreen = async () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
@@ -136,12 +164,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       await document.exitFullscreen().catch(() => {});
       setIsFullscreen(false);
     }
-  };
-
-  // VLC প্লেয়ারে স্ট্রিমিং ওপেন করার অপশন
-  const openInVLC = () => {
-    const vlcIntentUrl = `vlc://${currentUrl}`;
-    window.location.href = vlcIntentUrl;
   };
 
   const handleTimeUpdate = () => {
@@ -158,6 +180,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen' : 'w-full aspect-video rounded-b-xl'
       }`}
     >
+      {/* সিকিউরিটি স্ট্যাটাস ইন্ডিকেটর (থার্ডপার্টি প্লেয়ার একটিভ থাকলে) */}
+      {securityActive && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 bg-emerald-600/90 text-white text-[11px] font-bold px-3 py-1 rounded-full shadow-lg border border-emerald-400 flex items-center gap-1.5 animate-pulse">
+          <ShieldCheck className="w-3.5 h-3.5" /> Security Guard Active (External Stream)
+        </div>
+      )}
+
       {/* ভিডিও এলিমেন্ট অথবা আইফ্রেম */}
       {useIframe ? (
         <iframe
@@ -180,10 +209,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       )}
 
       {/* কন্ট্রোল ওভারলে */}
-      <div className="absolute inset-0 z-10 flex flex-col justify-between p-3 sm:p-4 bg-gradient-to-b from-black/70 via-transparent to-black/80 pointer-events-none">
+      <div className="absolute inset-0 z-10 flex flex-col justify-between p-3 sm:p-4 bg-gradient-to-b from-black/80 via-transparent to-black/90 pointer-events-none">
         
-        {/* টপ বার (বন্ধ বাটন, সার্ভিস সুইচ, VLC বাটন, WEB/HLS বাটন) */}
-        <div className="flex items-center justify-between gap-2 pointer-events-auto">
+        {/* টপ বার */}
+        <div className="flex items-center justify-between gap-2 pointer-events-auto mt-4 sm:mt-0">
           <button
             onClick={onClose}
             className="bg-black/60 hover:bg-white/20 p-2 rounded-full text-white transition"
@@ -193,11 +222,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </button>
 
           {/* সার্ভার সিলেক্টর */}
-          <div className="flex items-center gap-1.5 overflow-x-auto max-w-[50%] no-scrollbar">
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-[35%] no-scrollbar">
             {servers && servers.map((srv, idx) => (
               <button
                 key={idx}
-                onClick={() => setCurrentUrl(srv.url)}
+                onClick={() => {
+                  setCurrentUrl(srv.url);
+                  setSecurityActive(false);
+                }}
                 className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 whitespace-nowrap transition ${
                   srv.url === currentUrl ? 'bg-blue-600 text-white' : 'bg-black/60 text-slate-300 hover:bg-black/80'
                 }`}
@@ -208,29 +240,41 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ))}
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* VLC Player এ ওপেন করার অপশন */}
+          <div className="flex items-center gap-1.5">
+            {/* 🛡️ Secure Stream Player (com.genuine.leone) Button */}
             <button
-              onClick={openInVLC}
-              className="bg-orange-600 hover:bg-orange-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition"
-              title="Open stream in VLC App"
+              onClick={openInSecureStreamPlayer}
+              className="bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg border border-purple-400/50 transition active:scale-95"
+              title="Open with Security Guard in Stream Player"
             >
-              <ExternalLink className="w-3 h-3" /> VLC
+              <PlayCircle className="w-3.5 h-3.5" /> Secure Stream
             </button>
 
-            {/* WEB (Iframe) / HLS টগল বাটন */}
+            {/* VLC Button */}
             <button
-              onClick={() => setUseIframe(!useIframe)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition"
+              onClick={openInVLC}
+              className="bg-orange-600 hover:bg-orange-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition active:scale-95"
+              title="Open in VLC"
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> VLC
+            </button>
+
+            {/* WEB/HLS Switcher */}
+            <button
+              onClick={() => {
+                setUseIframe(!useIframe);
+                setSecurityActive(false);
+              }}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition active:scale-95"
             >
               <RefreshCw className="w-3 h-3" /> {useIframe ? 'WEB' : 'HLS'}
             </button>
           </div>
         </div>
 
-        {/* বটম কন্ট্রোল বার (শুধু HLS/Video মোডে দেখাবে) */}
+        {/* বটম কন্ট্রোল বার */}
         {!useIframe && (
-          <div className="flex flex-col gap-2 bg-black/60 backdrop-blur-md p-3 rounded-xl pointer-events-auto">
+          <div className="flex flex-col gap-2 bg-black/70 backdrop-blur-md p-3 rounded-xl pointer-events-auto">
             {/* সিক বার */}
             <div className="flex items-center gap-2">
               <input
@@ -247,12 +291,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               />
             </div>
 
-            {/* বাটনসমূহ */}
+            {/* প্লে ব্যাক নেভিগেশন ও চ্যানেল চেঞ্জার */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <button onClick={togglePlayPause} className="text-white hover:text-blue-400 p-1">
-                  {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                </button>
                 <button onClick={toggleMute} className="text-white hover:text-blue-400 p-1">
                   {isMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5" />}
                 </button>
@@ -262,6 +303,42 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 >
                   {playbackSpeed}x
                 </button>
+              </div>
+
+              {/* চ্যানেল নেক্সট / প্রিভিয়াস বাটন */}
+              <div className="flex items-center gap-3">
+                {onPrevChannel && (
+                  <button
+                    onClick={() => {
+                      setSecurityActive(false);
+                      onPrevChannel();
+                    }}
+                    className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition active:scale-95"
+                    title="Previous Channel"
+                  >
+                    <SkipBack className="w-5 h-5" />
+                  </button>
+                )}
+
+                <button
+                  onClick={togglePlayPause}
+                  className="p-2.5 bg-blue-600 hover:bg-blue-500 rounded-full text-white transition shadow-lg active:scale-95"
+                >
+                  {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
+                </button>
+
+                {onNextChannel && (
+                  <button
+                    onClick={() => {
+                      setSecurityActive(false);
+                      onNextChannel();
+                    }}
+                    className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition active:scale-95"
+                    title="Next Channel"
+                  >
+                    <SkipForward className="w-5 h-5" />
+                  </button>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
