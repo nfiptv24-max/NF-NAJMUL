@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+  import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import {
   X,
@@ -104,7 +104,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [title, logo, currentUrl]);
 
-  // Controls auto-hide timer - ALWAYS hides after 3.5 seconds of no interaction
+  // Controls auto-hide timer
   const triggerControlsOverlay = () => {
     setShowControls(true);
     if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
@@ -123,7 +123,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  // Lock or unlock orientation safely without upside-down CSS transforms
+  // Lock or unlock orientation
   const lockLandscape = () => {
     try {
       const orientation = (screen.orientation || (screen as any).mozOrientation || (screen as any).msOrientation) as any;
@@ -188,7 +188,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // TV Remote (D-Pad) and Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore keypresses if user is typing in an input or textarea
       if (
         document.activeElement &&
         (document.activeElement.tagName === 'INPUT' ||
@@ -198,8 +197,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
 
       const key = e.key;
-
-      // Wake up controls overlay on any remote press
       triggerControlsOverlay();
 
       switch (key) {
@@ -251,7 +248,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         case 'Escape':
         case 'Backspace':
         case 'GoBack':
-          // Close player if Escape / Back pressed
           if (onClose) {
             e.preventDefault();
             onClose();
@@ -282,7 +278,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     releaseWakeLock();
   };
 
-  // Main Stream Loader
+  // Main Stream Loader with Custom HLS & CORS Handling
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !currentUrl) return;
@@ -290,14 +286,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     cleanupPlayer();
     setStatus({ type: 'loading', text: 'Connecting...', subText: title || 'Loading stream' });
 
-    const isHlsUrl = currentUrl.toLowerCase().includes('.m3u8');
+    // Enhanced URL detection for HLS Streams
+    const isHlsUrl =
+      currentUrl.toLowerCase().includes('.m3u8') ||
+      currentUrl.includes('hlsmod') ||
+      currentUrl.includes('tiktokcdn');
 
     if (isHlsUrl && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        maxBufferLength: 15,
-        maxMaxBufferLength: 30
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = false; // Bypass strict CORS restriction
+        },
+        manifestLoadingTimeOut: 20000,
+        manifestLoadingMaxRetry: 5,
+        levelLoadingTimeOut: 20000,
+        levelLoadingMaxRetry: 5,
       });
 
       hlsRef.current = hls;
@@ -314,14 +321,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
       });
 
+      // Smart Error Handling & Auto-recovery
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) {
-          console.warn('HLS Fatal Error, triggering failover:', data);
-          setStatus({ type: 'error', text: 'Stream Error', subText: 'Auto-switching channel...' });
-          if (failoverTimer.current) clearTimeout(failoverTimer.current);
-          failoverTimer.current = setTimeout(() => {
-            if (onFailoverNext) onFailoverNext();
-          }, 2000);
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              console.warn('Network error, attempting to recover...');
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              console.warn('Media error, attempting to recover...');
+              hls.recoverMediaError();
+              break;
+            default:
+              console.warn('Fatal HLS Error, triggering failover:', data);
+              setStatus({ type: 'error', text: 'Stream Error', subText: 'Auto-switching channel...' });
+              if (failoverTimer.current) clearTimeout(failoverTimer.current);
+              failoverTimer.current = setTimeout(() => {
+                if (onFailoverNext) onFailoverNext();
+              }, 2000);
+              break;
+          }
         }
       });
     } else {
@@ -491,7 +511,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen max-w-none max-h-none flex items-center justify-center' : 'aspect-video'
         }`}
       >
-        {/* HTML5 Video Element */}
+        {/* HTML5 Video Element with No-Referrer Policy for Third-Party / TikTok Streams */}
         <video
           ref={videoRef}
           onTimeUpdate={handleTimeUpdate}
@@ -501,6 +521,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onPause={handlePause}
           playsInline
           autoPlay
+          referrerPolicy="no-referrer"
+          crossOrigin="anonymous"
           style={{ objectFit: zoomMode }}
           className="w-full h-full absolute inset-0 z-0 bg-black"
         />
@@ -543,7 +565,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         )}
 
-        {/* TAP TO SHOW CONTROLS LAYER (WHEN HIDDEN) */}
+        {/* TAP TO SHOW CONTROLS LAYER */}
         {!showControls && (
           <div
             className="absolute inset-0 z-30 cursor-pointer"
