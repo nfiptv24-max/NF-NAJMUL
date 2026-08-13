@@ -10,10 +10,10 @@ import {
   Minimize2,
   Server,
   RefreshCw,
-  Loader2
+  ExternalLink,
+  Tv
 } from 'lucide-react';
 import { ServerLink, PlayerStatus, ZoomMode } from '../types';
-import { DEFAULT_LOGO } from '../data/initialData';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -21,9 +21,6 @@ interface VideoPlayerProps {
   title: string;
   logo: string;
   onClose: () => void;
-  onNextChannel?: () => void;
-  onPrevChannel?: () => void;
-  onFailoverNext?: () => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -40,32 +37,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [useIframe, setUseIframe] = useState(false);
-  const [status, setStatus] = useState<PlayerStatus>({
-    type: 'loading',
-    text: 'Connecting...',
-    subText: 'Initializing video stream'
-  });
-  const [showControls, setShowControls] = useState(true);
+  const [status, setStatus] = useState<PlayerStatus>({ type: 'loading', text: 'Connecting...' });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [currentUrl, setCurrentUrl] = useState(streamUrl);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [zoomMode, setZoomMode] = useState<ZoomMode>('contain');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [currentUrl, setCurrentUrl] = useState(streamUrl);
 
-  const hideControlsTimer = useRef<NodeJS.Timeout | null>(null);
-
+  // লিংক পরিবর্তন হলে প্লেয়ার রিসেট
   useEffect(() => {
     setCurrentUrl(streamUrl);
     setUseIframe(false);
   }, [streamUrl]);
 
-  const triggerControlsOverlay = () => {
-    setShowControls(true);
-    if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
-    hideControlsTimer.current = setTimeout(() => {
-      setShowControls(false);
-    }, 4000);
-  };
-
+  // প্লেয়ার ক্লিনআপ
   const cleanupPlayer = () => {
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -78,64 +64,36 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
+  // প্লেয়ার ইঞ্জিন (HLS or Iframe)
   useEffect(() => {
-    if (useIframe) {
-      setStatus({ type: 'playing', text: 'Embedded Player Active', subText: title });
-      return;
-    }
+    cleanupPlayer();
+    if (useIframe) return;
 
     const video = videoRef.current;
     if (!video || !currentUrl) return;
 
-    cleanupPlayer();
-    setStatus({ type: 'loading', text: 'Connecting...', subText: title });
-
-    const isHlsUrl = currentUrl.toLowerCase().includes('.m3u8') || currentUrl.includes('hlsmod');
-
-    if (isHlsUrl && Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-      });
-
+    if (Hls.isSupported() && currentUrl.toLowerCase().includes('.m3u8')) {
+      const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
       hlsRef.current = hls;
       hls.loadSource(currentUrl);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().then(() => {
-          setIsPlaying(true);
-          setStatus({ type: 'playing', text: 'Playing', subText: title });
-        }).catch(() => {
-          setStatus({ type: 'buffering', text: 'Click Play to start', subText: '' });
-        });
+        video.play().then(() => setIsPlaying(true)).catch(() => {});
       });
 
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data.fatal) {
-          setUseIframe(true);
-        }
+      hls.on(Hls.Events.ERROR, () => {
+        setUseIframe(true); // HLS ফেল করলে অটোমেটিক Iframe-এ সুইচ করবে
       });
     } else {
       video.src = currentUrl;
-      video.play().then(() => {
-        setIsPlaying(true);
-        setStatus({ type: 'playing', text: 'Playing', subText: title });
-      }).catch(() => {
-        setUseIframe(true);
-      });
+      video.play().then(() => setIsPlaying(true)).catch(() => setUseIframe(true));
     }
 
     return () => cleanupPlayer();
   }, [currentUrl, useIframe]);
 
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-      setDuration(videoRef.current.duration || 0);
-    }
-  };
-
+  // প্লে / পজ টগল
   const togglePlayPause = () => {
     if (videoRef.current) {
       if (isPlaying) {
@@ -146,6 +104,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
+  // মিউট টগল
   const toggleMute = () => {
     if (videoRef.current) {
       videoRef.current.muted = !isMuted;
@@ -153,13 +112,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(e.target.value);
-    if (videoRef.current && duration > 0) {
-      videoRef.current.currentTime = (value / 100) * duration;
-    }
+  // স্পিড পরিবর্তন
+  const cycleSpeed = () => {
+    const speeds = [1.0, 1.25, 1.5, 2.0, 0.5];
+    const nextSpeed = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
+    setPlaybackSpeed(nextSpeed);
+    if (videoRef.current) videoRef.current.playbackRate = nextSpeed;
   };
 
+  // জুম মোড পরিবর্তন (Aspect Ratio)
+  const cycleZoomMode = () => {
+    const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
+    setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
+  };
+
+  // ফুলস্ক্রিন টগল
   const toggleFullscreen = async () => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
@@ -171,122 +138,143 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
-  const formatTime = (secs: number) => {
-    if (isNaN(secs) || !isFinite(secs) || secs < 0) return '00:00';
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = Math.floor(secs % 60);
-    if (h > 0) return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-    return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+  // VLC প্লেয়ারে স্ট্রিমিং ওপেন করার অপশন
+  const openInVLC = () => {
+    const vlcIntentUrl = `vlc://${currentUrl}`;
+    window.location.href = vlcIntentUrl;
+  };
+
+  const handleTimeUpdate = () => {
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime);
+      setDuration(videoRef.current.duration || 0);
+    }
   };
 
   return (
-    <div className="sticky top-0 z-40 bg-black rounded-b-2xl overflow-hidden shadow-2xl">
-      <div
-        ref={containerRef}
-        onClick={triggerControlsOverlay}
-        onMouseMove={triggerControlsOverlay}
-        className={`relative w-full bg-black select-none overflow-hidden ${
-          isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen' : 'aspect-video'
-        }`}
-      >
-        {useIframe ? (
-          <iframe
-            src={currentUrl}
-            className="w-full h-full absolute inset-0 z-0 bg-black border-0"
-            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-            allowFullScreen
-          />
-        ) : (
-          <video
-            ref={videoRef}
-            onTimeUpdate={handleTimeUpdate}
-            onPlaying={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            playsInline
-            autoPlay
-            className="w-full h-full absolute inset-0 z-0 bg-black object-contain"
-          />
-        )}
+    <div
+      ref={containerRef}
+      className={`relative bg-black overflow-hidden ${
+        isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen' : 'w-full aspect-video rounded-b-xl'
+      }`}
+    >
+      {/* ভিডিও এলিমেন্ট অথবা আইফ্রেম */}
+      {useIframe ? (
+        <iframe
+          src={currentUrl}
+          className="w-full h-full border-0 absolute inset-0 z-0 bg-black"
+          allowFullScreen
+          allow="autoplay; encrypted-media; picture-in-picture"
+        />
+      ) : (
+        <video
+          ref={videoRef}
+          onTimeUpdate={handleTimeUpdate}
+          onPlaying={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          style={{ objectFit: zoomMode }}
+          className="w-full h-full absolute inset-0 z-0 bg-black"
+          autoPlay
+          playsInline
+        />
+      )}
 
-        {/* Loading Overlay */}
-        {status.type !== 'playing' && !useIframe && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60">
-            <div className="bg-black/80 p-4 rounded-xl text-center flex flex-col items-center gap-2 border border-white/10">
-              <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-              <span className="text-xs text-white font-bold">{status.text}</span>
-            </div>
+      {/* কন্ট্রোল ওভারলে */}
+      <div className="absolute inset-0 z-10 flex flex-col justify-between p-3 sm:p-4 bg-gradient-to-b from-black/70 via-transparent to-black/80 pointer-events-none">
+        
+        {/* টপ বার (বন্ধ বাটন, সার্ভিস সুইচ, VLC বাটন, WEB/HLS বাটন) */}
+        <div className="flex items-center justify-between gap-2 pointer-events-auto">
+          <button
+            onClick={onClose}
+            className="bg-black/60 hover:bg-white/20 p-2 rounded-full text-white transition"
+            title="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          {/* সার্ভার সিলেক্টর */}
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-[50%] no-scrollbar">
+            {servers && servers.map((srv, idx) => (
+              <button
+                key={idx}
+                onClick={() => setCurrentUrl(srv.url)}
+                className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 whitespace-nowrap transition ${
+                  srv.url === currentUrl ? 'bg-blue-600 text-white' : 'bg-black/60 text-slate-300 hover:bg-black/80'
+                }`}
+              >
+                <Server className="w-3 h-3" />
+                {srv.name || `Server ${idx + 1}`}
+              </button>
+            ))}
           </div>
-        )}
 
-        {/* Video Controls Layer */}
-        <div
-          className={`absolute inset-0 z-30 flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
-            showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-          }`}
-        >
-          {/* Top Bar */}
-          <div className="flex items-center justify-between gap-2">
-            <button onClick={onClose} className="p-2 rounded-full bg-white/20 text-white hover:bg-white/30">
-              <X className="w-5 h-5" />
+          <div className="flex items-center gap-2">
+            {/* VLC Player এ ওপেন করার অপশন */}
+            <button
+              onClick={openInVLC}
+              className="bg-orange-600 hover:bg-orange-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition"
+              title="Open stream in VLC App"
+            >
+              <ExternalLink className="w-3 h-3" /> VLC
             </button>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto">
-              {servers.map((srv, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => setCurrentUrl(srv.url)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
-                    srv.url === currentUrl ? 'bg-blue-600 text-white' : 'bg-black/60 text-slate-300'
-                  }`}
-                >
-                  <Server className="w-3 h-3" />
-                  {srv.name || `Server ${idx + 1}`}
-                </button>
-              ))}
-            </div>
-
+            {/* WEB (Iframe) / HLS টগল বাটন */}
             <button
               onClick={() => setUseIframe(!useIframe)}
-              className="bg-emerald-600 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition"
             >
-              <RefreshCw className="w-3 h-3" />
-              {useIframe ? 'WEB' : 'HLS'}
+              <RefreshCw className="w-3 h-3" /> {useIframe ? 'WEB' : 'HLS'}
             </button>
           </div>
+        </div>
 
-          {/* Bottom Bar Controls (Show Control Bar explicitly) */}
-          {!useIframe && (
-            <div className="flex flex-col gap-2 bg-black/40 p-2 rounded-xl backdrop-blur-sm">
+        {/* বটম কন্ট্রোল বার (শুধু HLS/Video মোডে দেখাবে) */}
+        {!useIframe && (
+          <div className="flex flex-col gap-2 bg-black/60 backdrop-blur-md p-3 rounded-xl pointer-events-auto">
+            {/* সিক বার */}
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={duration > 0 ? (currentTime / duration) * 100 : 0}
+                onChange={(e) => {
+                  if (videoRef.current && duration > 0) {
+                    videoRef.current.currentTime = (parseFloat(e.target.value) / 100) * duration;
+                  }
+                }}
+                className="w-full h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+
+            {/* বাটনসমূহ */}
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-white font-mono">{formatTime(currentTime)}</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={duration > 0 ? (currentTime / duration) * 100 : 0}
-                  onChange={handleSeek}
-                  className="flex-1 h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-                <span className="text-[10px] text-white font-mono">{formatTime(duration)}</span>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <button onClick={toggleMute} className="p-2 text-white">
+                <button onClick={togglePlayPause} className="text-white hover:text-blue-400 p-1">
+                  {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                </button>
+                <button onClick={toggleMute} className="text-white hover:text-blue-400 p-1">
                   {isMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5" />}
                 </button>
-
-                <button onClick={togglePlayPause} className="p-2.5 bg-blue-600 rounded-full text-white">
-                  {isPlaying ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white ml-0.5" />}
+                <button
+                  onClick={cycleSpeed}
+                  className="text-white text-xs font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded-md"
+                >
+                  {playbackSpeed}x
                 </button>
+              </div>
 
-                <button onClick={toggleFullscreen} className="p-2 text-white">
+              <div className="flex items-center gap-2">
+                <button onClick={cycleZoomMode} className="text-white hover:text-blue-400 p-1" title="Aspect Ratio">
+                  <Tv className="w-5 h-5" />
+                </button>
+                <button onClick={toggleFullscreen} className="text-white hover:text-blue-400 p-1">
                   {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
                 </button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
