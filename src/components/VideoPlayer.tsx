@@ -21,19 +21,19 @@ import { ServerLink, ZoomMode } from '../types';
 
 interface VideoPlayerProps {
   streamUrl: string;
-  servers: ServerLink[];
-  title: string;
-  logo: string;
+  servers?: ServerLink[];
+  title?: string;
+  logo?: string;
   onClose: () => void;
   onNextChannel?: () => void;
   onPrevChannel?: () => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
-  streamUrl,
-  servers,
-  title,
-  logo,
+  streamUrl = '',
+  servers = [],
+  title = 'Live Stream',
+  logo = '',
   onClose,
   onNextChannel,
   onPrevChannel
@@ -48,12 +48,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [useIframe, setUseIframe] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [currentUrl, setCurrentUrl] = useState(streamUrl);
+  const [currentUrl, setCurrentUrl] = useState<string>(streamUrl || '');
   const [zoomMode, setZoomMode] = useState<ZoomMode>('contain');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
 
+  // 👁️ কন্ট্রোল বার অটো-হাইড লজিক
   const resetControlsTimeout = () => {
     setShowControls(true);
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
@@ -71,35 +72,43 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isPlaying]);
 
+  // Mixed Content / HTTPS চেক (Null Safe)
   const checkMixedContent = (url: string) => {
-    if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+    if (!url) return false;
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && url.startsWith('http://')) {
       return true;
     }
     return false;
   };
 
   useEffect(() => {
-    setCurrentUrl(streamUrl);
+    const validUrl = streamUrl || '';
+    setCurrentUrl(validUrl);
     setUseIframe(false);
-    setHasError(checkMixedContent(streamUrl));
+    setHasError(checkMixedContent(validUrl));
   }, [streamUrl]);
 
   const cleanupPlayer = () => {
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.removeAttribute('src');
-      videoRef.current.load();
+    try {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
+      }
+    } catch (err) {
+      console.error("Cleanup error:", err);
     }
   };
 
+  // 📺 স্ট্রিমিং লোড লজিক (Crash-Safe)
   useEffect(() => {
     cleanupPlayer();
 
-    if (useIframe) return;
+    if (useIframe || !currentUrl) return;
 
     if (checkMixedContent(currentUrl)) {
       setHasError(true);
@@ -107,29 +116,36 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     const video = videoRef.current;
-    if (!video || !currentUrl) return;
+    if (!video) return;
 
-    if (Hls.isSupported() && currentUrl.toLowerCase().includes('.m3u8')) {
-      const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-      hlsRef.current = hls;
-      hls.loadSource(currentUrl);
-      hls.attachMedia(video);
+    try {
+      const urlLower = currentUrl.toLowerCase();
+      if (Hls.isSupported() && urlLower.includes('.m3u8')) {
+        const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+        hlsRef.current = hls;
+        hls.loadSource(currentUrl);
+        hls.attachMedia(video);
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().then(() => setIsPlaying(true)).catch(() => setHasError(true));
+        });
+
+        hls.on(Hls.Events.ERROR, () => {
+          setHasError(true);
+        });
+      } else {
+        video.src = currentUrl;
         video.play().then(() => setIsPlaying(true)).catch(() => setHasError(true));
-      });
-
-      hls.on(Hls.Events.ERROR, () => {
-        setHasError(true);
-      });
-    } else {
-      video.src = currentUrl;
-      video.play().then(() => setIsPlaying(true)).catch(() => setHasError(true));
+      }
+    } catch (err) {
+      console.error("Playback init error:", err);
+      setHasError(true);
     }
 
     return () => cleanupPlayer();
   }, [currentUrl, useIframe]);
 
+  // 🚀 External App Open
   const openInExternalApp = (packageName?: string) => {
     if (!currentUrl) return;
 
@@ -167,13 +183,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           : 'relative w-full aspect-video rounded-b-xl'
       }`}
     >
-      {/* ১. এরর ওভারলে */}
-      {hasError && !useIframe ? (
+      {/* ১. স্ট্রিমিং না থাকলে / ইউআরএল ফাঁকা হলে অ্যালার্ট */}
+      {!currentUrl && (
+        <div className="absolute inset-0 z-40 bg-slate-900 flex flex-col items-center justify-center p-4 text-center text-white">
+          <AlertTriangle className="w-8 h-8 text-yellow-400 mb-2" />
+          <p className="text-sm font-semibold">No Video Stream URL Found!</p>
+          <button onClick={onClose} className="mt-3 px-4 py-1.5 bg-red-600 rounded-lg text-xs font-bold">
+            Close Player
+          </button>
+        </div>
+      )}
+
+      {/* ২. এরর ওভারলে */}
+      {hasError && !useIframe && currentUrl ? (
         <div className="absolute inset-0 z-30 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center">
           <AlertTriangle className="w-10 h-10 text-amber-400 mb-2 animate-bounce" />
-          <h3 className="text-white text-sm font-bold mb-1">Stream Blocked (Mixed Content / CORS)</h3>
+          <h3 className="text-white text-sm font-bold mb-1">Stream Blocked or Offline</h3>
           <p className="text-slate-400 text-xs mb-4 max-w-xs">
-            HTTPS সিকিউরিটির কারণে এই HTTP স্ট্রিমটি সরাসরি প্লে হচ্ছে না। এক্সটার্নাল প্লেয়ারে ওপেন করুন।
+            সরাসরি প্লে হচ্ছে না। নিচের প্লেয়ারগুলোর একটি বেছে নিন।
           </p>
           <div className="flex flex-wrap gap-2 justify-center">
             <button
@@ -198,7 +225,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       ) : null}
 
-      {/* ২. ভিডিও প্লেয়ার */}
+      {/* ৩. ভিডিও প্লেয়ার / আইফ্রেম */}
       {useIframe ? (
         <iframe
           src={currentUrl}
@@ -211,7 +238,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onError={() => setHasError(true)}
           onTimeUpdate={() => {
             if (videoRef.current) {
-              setCurrentTime(videoRef.current.currentTime);
+              setCurrentTime(videoRef.current.currentTime || 0);
               setDuration(videoRef.current.duration || 0);
             }
           }}
@@ -227,7 +254,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         />
       )}
 
-      {/* ৩. কন্ট্রোল ওভারলে */}
+      {/* ৪. কন্ট্রোল বার */}
       <div
         className={`absolute inset-0 z-10 flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
           showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -240,10 +267,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </button>
 
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar max-w-[45%]">
-            {servers?.map((srv, idx) => (
+            {Array.isArray(servers) && servers.map((srv, idx) => (
               <button
                 key={idx}
-                onClick={() => setCurrentUrl(srv.url)}
+                onClick={() => setCurrentUrl(srv.url || '')}
                 className={`px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition ${
                   srv.url === currentUrl ? 'bg-blue-600 text-white' : 'bg-black/60 text-slate-300'
                 }`}
@@ -270,7 +297,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
 
-        {/* বটম কন্ট্রোল বার */}
+        {/* বটম বার */}
         {!useIframe && (
           <div className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl">
             <input
