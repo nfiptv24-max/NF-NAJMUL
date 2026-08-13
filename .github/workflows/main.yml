@@ -18,11 +18,11 @@ jobs:
       with:
         node-version: 20
 
-    - name: Setup Java JDK 21
+    - name: Setup Java JDK 17
       uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
-        java-version: '21'
+        java-version: '17'
 
     - name: Install Dependencies
       run: npm install
@@ -38,28 +38,28 @@ jobs:
         npx cap add android
         npx cap sync android
 
-    - name: Override Java Compatibility in Gradle
+    - name: Upgrade Android SDK to 35 & Fix Java 17
       run: |
         node -e '
           const fs = require("fs");
           
-          // 1. App Level build.gradle
-          const appGradle = "android/app/build.gradle";
-          if (fs.existsSync(appGradle)) {
-            let content = fs.readFileSync(appGradle, "utf8");
-            content = content.replace(/sourceCompatibility JavaVersion\.VERSION_\d+/g, "sourceCompatibility JavaVersion.VERSION_21");
-            content = content.replace(/targetCompatibility JavaVersion\.VERSION_\d+/g, "targetCompatibility JavaVersion.VERSION_21");
-            fs.writeFileSync(appGradle, content);
-          }
-
-          // 2. Variables.gradle fix
+          // 1. variables.gradle-এ compileSdkVersion এবং targetSdkVersion ৩৫ করে দেয়া
           const varsGradle = "android/variables.gradle";
           if (fs.existsSync(varsGradle)) {
             let content = fs.readFileSync(varsGradle, "utf8");
             content = content.replace(/minSdkVersion\s*=\s*\d+/g, "minSdkVersion = 22");
-            content = content.replace(/compileSdkVersion\s*=\s*\d+/g, "compileSdkVersion = 34");
-            content = content.replace(/targetSdkVersion\s*=\s*\d+/g, "targetSdkVersion = 34");
+            content = content.replace(/compileSdkVersion\s*=\s*\d+/g, "compileSdkVersion = 35");
+            content = content.replace(/targetSdkVersion\s*=\s*\d+/g, "targetSdkVersion = 35");
             fs.writeFileSync(varsGradle, content);
+          }
+
+          // 2. build.gradle-এ Java 17 ম্যাচ করানো
+          const appGradle = "android/app/build.gradle";
+          if (fs.existsSync(appGradle)) {
+            let content = fs.readFileSync(appGradle, "utf8");
+            content = content.replace(/sourceCompatibility JavaVersion\.VERSION_\d+/g, "sourceCompatibility JavaVersion.VERSION_17");
+            content = content.replace(/targetCompatibility JavaVersion\.VERSION_\d+/g, "targetCompatibility JavaVersion.VERSION_17");
+            fs.writeFileSync(appGradle, content);
           }
         '
 
