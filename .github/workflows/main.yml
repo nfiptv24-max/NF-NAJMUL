@@ -44,11 +44,15 @@ jobs:
         npx cap add android || true
         npx cap sync android
 
+    # 🚀 Node.js ব্যবহার করে পারমিশন ইনজেক্ট (কোনো YAML বা Bash Error হবে না)
     - name: Inject Android Permissions & Queries
       run: |
-        MANIFEST="android/app/src/main/AndroidManifest.xml"
-        if [ -f "$MANIFEST" ]; then
-          cat << 'EOF' > queries.xml
+        node -e '
+        const fs = require("fs");
+        const path = "android/app/src/main/AndroidManifest.xml";
+        if (fs.existsSync(path)) {
+          let content = fs.readFileSync(path, "utf8");
+          const queries = `
     <queries>
         <package android:name="com.mxtech.videoplayer.ad" />
         <package android:name="com.mxtech.videoplayer.pro" />
@@ -66,10 +70,12 @@ jobs:
             <data android:scheme="https" />
         </intent>
     </queries>
-EOF
-          sed -i '/<\/manifest>/e cat queries.xml' "$MANIFEST"
-          echo "Queries successfully injected!"
-        fi
+  </manifest>`;
+          content = content.replace("</manifest>", queries);
+          fs.writeFileSync(path, content);
+          console.log("Queries injected successfully!");
+        }
+        '
 
     - name: Fix Kotlin Conflict
       run: |
