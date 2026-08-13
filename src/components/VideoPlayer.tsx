@@ -16,7 +16,8 @@ import {
   SkipBack,
   SkipForward,
   PlayCircle,
-  AlertTriangle
+  AlertTriangle,
+  Radio
 } from 'lucide-react';
 import { ServerLink, ZoomMode } from '../types';
 
@@ -55,26 +56,47 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
 
-  // 👁️ কন্ট্রোল বার শো/হাইড লজিক
-  const resetControlsTimeout = () => {
-    setShowControls(true);
+  const isLive = !isFinite(duration) || duration === 0;
+
+  // 👁️ টাইমার রিমুভ ও রিসেট হ্যান্ডলার
+  const startControlsTimeout = () => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     if (isPlaying) {
       controlsTimeoutRef.current = setTimeout(() => {
         setShowControls(false);
-      }, 4000); // ৪ সেকেন্ড পর হাইড হবে
+      }, 3500);
+    }
+  };
+
+  // 👆 টাচ/ক্লিক করলে হাইড বা শো (Toggle) করার ফাংশন
+  const toggleControls = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
+    if (showControls) {
+      setShowControls(false);
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    } else {
+      setShowControls(true);
+      startControlsTimeout();
     }
   };
 
   useEffect(() => {
-    resetControlsTimeout();
+    if (isPlaying && showControls) {
+      startControlsTimeout();
+    }
     return () => {
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     };
-  }, [isPlaying]);
+  }, [isPlaying, showControls]);
 
-  // 📺 TV Remote Navigation Support (Up/Down Channel Change)
+  // 📺 Fullscreen Change & Key Navigation
   useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
     const handleKeyDown = (e: KeyboardEvent) => {
       switch (e.key) {
         case 'ArrowUp':
@@ -83,7 +105,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           e.preventDefault();
           if (onPrevChannel) {
             onPrevChannel();
-            resetControlsTimeout();
+            setShowControls(true);
+            startControlsTimeout();
           }
           break;
 
@@ -93,7 +116,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           e.preventDefault();
           if (onNextChannel) {
             onNextChannel();
-            resetControlsTimeout();
+            setShowControls(true);
+            startControlsTimeout();
           }
           break;
 
@@ -105,13 +129,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (isPlaying) videoRef.current.pause();
               else videoRef.current.play();
             }
-            resetControlsTimeout();
-          }
-          break;
-
-        case 'Escape':
-          if (isFullscreen) {
-            setIsFullscreen(false);
+            setShowControls(true);
+            startControlsTimeout();
           }
           break;
 
@@ -122,6 +141,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [onNextChannel, onPrevChannel, isFullscreen, isPlaying]);
@@ -227,18 +247,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   const toggleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
+    if (!containerRef.current) return;
+
+    if (!document.fullscreenElement) {
+      if (containerRef.current.requestFullscreen) {
+        containerRef.current.requestFullscreen();
+      } else if ((containerRef.current as any).webkitRequestFullscreen) {
+        (containerRef.current as any).webkitRequestFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      } else if ((document as any).webkitExitFullscreen) {
+        (document as any).webkitExitFullscreen();
+      }
+    }
   };
 
   const playerContent = (
     <div
       ref={containerRef}
-      onClick={resetControlsTimeout}
-      onTouchStart={resetControlsTimeout}
+      onClick={toggleControls}
       className={`bg-black overflow-hidden select-none transition-all ${
         isFullscreen
-          ? 'fixed inset-0 z-[999999] w-screen h-screen'
-          : 'relative w-full aspect-video rounded-b-xl z-10'
+          ? 'fixed inset-0 z-[9999999] w-screen h-screen'
+          : 'fixed top-0 left-0 right-0 z-[9999] w-full aspect-video shadow-2xl'
       }`}
     >
       {/* ১. নো ইউআরএল মেসেজ */}
@@ -295,6 +328,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ) : (
         <video
           ref={videoRef}
+          muted={isMuted}
           onError={() => setHasError(true)}
           onTimeUpdate={() => {
             if (videoRef.current) {
@@ -308,22 +342,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             setShowControls(true);
           }}
           style={{ objectFit: zoomMode }}
-          className="w-full h-full absolute inset-0 z-0 bg-black"
+          className="w-full h-full absolute inset-0 z-0 bg-black object-contain"
           autoPlay
           playsInline
         />
       )}
 
-      {/* ৪. ভিজিবল কন্ট্রোল ওভারলে (Highest Z-Index) */}
+      {/* ৪. প্লেয়ার কন্ট্রোল ওভারলে */}
       <div
-        className={`absolute inset-0 z-[9999999] flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
+        className={`absolute inset-0 z-10 flex flex-col justify-between p-2 sm:p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
           showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
         {/* টপ বার */}
-        <div className="flex items-center justify-between gap-2">
-          <button onClick={onClose} className="bg-black/60 hover:bg-white/20 p-2 rounded-full text-white cursor-pointer">
-            <X className="w-5 h-5" />
+        <div className="flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+          <button onClick={onClose} className="bg-black/60 hover:bg-white/20 p-1.5 rounded-full text-white">
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar max-w-[45%]">
@@ -331,7 +365,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <button
                 key={idx}
                 onClick={() => setCurrentUrl(srv.url || '')}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition ${
+                className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-bold whitespace-nowrap transition ${
                   srv.url === currentUrl ? 'bg-blue-600 text-white' : 'bg-black/60 text-slate-300'
                 }`}
               >
@@ -344,13 +378,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="flex items-center gap-1">
             <button
               onClick={() => openInExternalApp()}
-              className="bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+              className="bg-purple-600 hover:bg-purple-500 text-white px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md text-[10px] sm:text-[11px] font-bold flex items-center gap-1 shadow"
             >
-              <PlayCircle className="w-3.5 h-3.5" /> Player
+              <PlayCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> Player
             </button>
             <button
               onClick={() => setUseIframe(!useIframe)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded-md text-[11px] font-bold cursor-pointer"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-0.5 sm:py-1 rounded-md text-[10px] sm:text-[11px] font-bold"
             >
               {useIframe ? 'HLS' : 'WEB'}
             </button>
@@ -359,13 +393,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {/* বটম বার */}
         {!useIframe && (
-          <div className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl">
-            {duration > 0 && Number.isFinite(duration) && (
+          <div className="flex flex-col gap-1.5 bg-black/75 backdrop-blur-md p-2 rounded-lg" onClick={(e) => e.stopPropagation()}>
+            {!isLive ? (
               <input
                 type="range"
                 min="0"
                 max="100"
-                value={(currentTime / duration) * 100 || 0}
+                value={duration > 0 ? (currentTime / duration) * 100 : 0}
                 onChange={(e) => {
                   if (videoRef.current && duration > 0) {
                     videoRef.current.currentTime = (parseFloat(e.target.value) / 100) * duration;
@@ -373,43 +407,54 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 }}
                 className="w-full h-1 bg-white/30 rounded cursor-pointer accent-blue-500"
               />
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs text-red-500 font-bold px-1">
+                <Radio className="w-3.5 h-3.5 animate-pulse" />
+                <span>LIVE TV</span>
+              </div>
             )}
 
             <div className="flex items-center justify-between">
-              <button onClick={() => setIsMuted(!isMuted)} className="text-white p-1 cursor-pointer">
+              <button onClick={() => setIsMuted(!isMuted)} className="text-white p-1">
                 {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
               </button>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 {onPrevChannel && (
-                  <button onClick={onPrevChannel} className="p-1.5 bg-white/10 rounded-full text-white cursor-pointer">
-                    <SkipBack className="w-4 h-4" />
+                  <button onClick={onPrevChannel} className="p-1 sm:p-1.5 bg-white/10 rounded-full text-white">
+                    <SkipBack className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </button>
                 )}
                 <button
-                  onClick={() => (isPlaying ? videoRef.current?.pause() : videoRef.current?.play())}
-                  className="p-2 bg-blue-600 rounded-full text-white shadow-lg cursor-pointer"
+                  onClick={() => {
+                    if (videoRef.current) {
+                      if (isPlaying) videoRef.current.pause();
+                      else videoRef.current.play();
+                    }
+                  }}
+                  className="p-1.5 sm:p-2 bg-blue-600 rounded-full text-white shadow-lg hover:bg-blue-500"
                 >
-                  {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+                  {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 ml-0.5" />}
                 </button>
                 {onNextChannel && (
-                  <button onClick={onNextChannel} className="p-1.5 bg-white/10 rounded-full text-white cursor-pointer">
-                    <SkipForward className="w-4 h-4" />
+                  <button onClick={onNextChannel} className="p-1 sm:p-1.5 bg-white/10 rounded-full text-white">
+                    <SkipForward className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </button>
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => {
                     const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
                     setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
                   }}
-                  className="text-white p-1 cursor-pointer"
+                  className="text-white p-1"
+                  title="Aspect Ratio"
                 >
                   <Tv className="w-4 h-4" />
                 </button>
-                <button onClick={toggleFullscreen} className="text-white p-1 cursor-pointer">
+                <button onClick={toggleFullscreen} className="text-white p-1">
                   {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                 </button>
               </div>
@@ -420,8 +465,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     </div>
   );
 
-  // 🌟 কেবল ফুলস্ক্রিন অ্যাক্টিভ থাকলেই পোর্টাল দিয়ে রেন্ডার হবে
-  if (isFullscreen && typeof document !== 'undefined') {
+  if (typeof document !== 'undefined') {
     return createPortal(playerContent, document.body);
   }
 
