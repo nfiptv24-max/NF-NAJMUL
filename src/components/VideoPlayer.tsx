@@ -1,5 +1,4 @@
-
-      import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import {
   X,
@@ -16,9 +15,9 @@ import {
   SkipBack,
   SkipForward,
   PlayCircle,
-  ShieldCheck
+  AlertTriangle
 } from 'lucide-react';
-import { ServerLink, PlayerStatus, ZoomMode } from '../types';
+import { ServerLink, ZoomMode } from '../types';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -42,21 +41,54 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [useIframe, setUseIframe] = useState(false);
+  const [hasError, setHasError] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentUrl, setCurrentUrl] = useState(streamUrl);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [zoomMode, setZoomMode] = useState<ZoomMode>('contain');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [securityActive, setSecurityActive] = useState(false);
+
+  // 👁️ কন্ট্রোল বার অটো-হাইড স্টেট
+  const [showControls, setShowControls] = useState(true);
+
+  // ৩ সেকেন্ড পর অটো হাইড করার লজিক
+  const resetControlsTimeout = () => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    // ভিডিও চলতে থাকলে ৩ সেকেন্ড পর কন্ট্রোল হাইড হবে
+    if (isPlaying) {
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+      }, 3000);
+    }
+  };
+
+  useEffect(() => {
+    resetControlsTimeout();
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [isPlaying]);
+
+  // HTTPS পেইজে HTTP লিঙ্ক ব্লক চেক
+  const checkMixedContent = (url: string) => {
+    if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+      return true;
+    }
+    return false;
+  };
 
   useEffect(() => {
     setCurrentUrl(streamUrl);
     setUseIframe(false);
+    setHasError(checkMixedContent(streamUrl));
   }, [streamUrl]);
 
   const cleanupPlayer = () => {
@@ -73,7 +105,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     cleanupPlayer();
+
     if (useIframe) return;
+
+    if (checkMixedContent(currentUrl)) {
+      setHasError(true);
+      return;
+    }
 
     const video = videoRef.current;
     if (!video || !currentUrl) return;
@@ -85,109 +123,119 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().then(() => setIsPlaying(true)).catch(() => {});
+        video.play().then(() => setIsPlaying(true)).catch(() => setHasError(true));
       });
 
       hls.on(Hls.Events.ERROR, () => {
-        setUseIframe(true);
+        setHasError(true);
       });
     } else {
       video.src = currentUrl;
-      video.play().then(() => setIsPlaying(true)).catch(() => setUseIframe(true));
+      video.play().then(() => setIsPlaying(true)).catch(() => setHasError(true));
     }
 
     return () => cleanupPlayer();
   }, [currentUrl, useIframe]);
 
-  // 🛡️ সিকিউরিটি থার্ড পার্টি মোড চালু সহ Stream Player (com.genuine.leone) ওপেন
-  const openInSecureStreamPlayer = () => {
-    setSecurityActive(true);
-
-    // Intent Flags: Launch outside app context, keep current task active, secure stream intent
-    const intentFlags = 'FLAG_ACTIVITY_NEW_TASK|FLAG_ACTIVITY_CLEAR_TOP|FLAG_ACTIVITY_MULTIPLE_TASK';
-    
-    // Android Intent with Security Metadata
-    const intentUrl = `intent:${currentUrl}#Intent;` +
-      `action=android.intent.action.VIEW;` +
-      `type=video/*;` +
-      `package=com.genuine.leone;` +
-      `component=com.genuine.leone/.ui.splash.SplashActivity;` +
-      `S.title=${encodeURIComponent(title)};` +
-      `B.secure_mode=true;` +
-      `launchFlags=0x10000000;` +
-      `end;`;
-
-    // Trigger Stream Player
-    window.location.href = intentUrl;
-  };
-
-  const openInVLC = () => {
-    setSecurityActive(true);
-    window.location.href = `vlc://${currentUrl}`;
-  };
-
-  const togglePlayPause = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play().catch(() => {});
-      }
+  const openInExternalApp = (packageName?: string) => {
+    if (packageName) {
+      const intentUrl = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=${packageName};component=${packageName}/.ui.splash.SplashActivity;S.title=${encodeURIComponent(
+        title
+      )};end;`;
+      window.location.href = intentUrl;
+    } else {
+      window.location.href = `vlc://${currentUrl}`;
     }
   };
 
-  const toggleMute = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
-    }
-  };
-
-  const cycleSpeed = () => {
-    const speeds = [1.0, 1.25, 1.5, 2.0, 0.5];
-    const nextSpeed = speeds[(speeds.indexOf(playbackSpeed) + 1) % speeds.length];
-    setPlaybackSpeed(nextSpeed);
-    if (videoRef.current) videoRef.current.playbackRate = nextSpeed;
-  };
-
-  const cycleZoomMode = () => {
-    const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
-    setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
-  };
-
+  // 🔄 অটোমেটিক রোটেট সহ ফুলস্ক্রিন টগল
   const toggleFullscreen = async () => {
     if (!containerRef.current) return;
+
     if (!document.fullscreenElement) {
       await containerRef.current.requestFullscreen().catch(() => {});
       setIsFullscreen(true);
+
+      if (window.screen?.orientation && 'lock' in window.screen.orientation) {
+        try {
+          await (window.screen.orientation as any).lock('landscape');
+        } catch (e) {
+          console.warn('Orientation lock failed:', e);
+        }
+      }
     } else {
+      if (window.screen?.orientation && 'unlock' in window.screen.orientation) {
+        try {
+          window.screen.orientation.unlock();
+        } catch (e) {
+          console.warn('Orientation unlock failed:', e);
+        }
+      }
+
       await document.exitFullscreen().catch(() => {});
       setIsFullscreen(false);
     }
   };
 
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-      setDuration(videoRef.current.duration || 0);
-    }
-  };
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setIsFullscreen(false);
+        if (window.screen?.orientation && 'unlock' in window.screen.orientation) {
+          try {
+            window.screen.orientation.unlock();
+          } catch (e) {}
+        }
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
   return (
     <div
       ref={containerRef}
-      className={`relative bg-black overflow-hidden ${
+      onMouseMove={resetControlsTimeout}
+      onTouchStart={resetControlsTimeout}
+      className={`relative bg-black overflow-hidden select-none ${
         isFullscreen ? 'fixed inset-0 z-50 w-screen h-screen' : 'w-full aspect-video rounded-b-xl'
       }`}
     >
-      {/* সিকিউরিটি স্ট্যাটাস ইন্ডিকেটর (থার্ডপার্টি প্লেয়ার একটিভ থাকলে) */}
-      {securityActive && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 bg-emerald-600/90 text-white text-[11px] font-bold px-3 py-1 rounded-full shadow-lg border border-emerald-400 flex items-center gap-1.5 animate-pulse">
-          <ShieldCheck className="w-3.5 h-3.5" /> Security Guard Active (External Stream)
+      {/* স্ট্রিমিং এরর / Mixed Content Block ওভারলে */}
+      {hasError && !useIframe ? (
+        <div className="absolute inset-0 z-20 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center">
+          <AlertTriangle className="w-10 h-10 text-amber-400 mb-2 animate-bounce" />
+          <h3 className="text-white text-sm font-bold mb-1">Stream Blocked (Mixed Content / CORS)</h3>
+          <p className="text-slate-400 text-xs mb-4 max-w-xs">
+            HTTPS সিকিউরিটির কারণে এই HTTP স্ট্রিমটি সরাসরি প্লে হচ্ছে না। এক্সটার্নাল প্লেয়ারে ওপেন করুন।
+          </p>
+          <div className="flex flex-wrap gap-2 justify-center">
+            <button
+              onClick={() => openInExternalApp('com.genuine.leone')}
+              className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition"
+            >
+              <PlayCircle className="w-4 h-4" /> Open Stream Player
+            </button>
+            <button
+              onClick={() => openInExternalApp()}
+              className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition"
+            >
+              <ExternalLink className="w-4 h-4" /> Open VLC
+            </button>
+            <button
+              onClick={() => setUseIframe(true)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition"
+            >
+              <RefreshCw className="w-4 h-4" /> Web Iframe Mode
+            </button>
+          </div>
         </div>
-      )}
+      ) : null}
 
-      {/* ভিডিও এলিমেন্ট অথবা আইফ্রেম */}
+      {/* ভিডিও বা আইফ্রেম প্লেয়ার */}
       {useIframe ? (
         <iframe
           src={currentUrl}
@@ -198,155 +246,123 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ) : (
         <video
           ref={videoRef}
-          onTimeUpdate={handleTimeUpdate}
+          onError={() => setHasError(true)}
+          onTimeUpdate={() => {
+            if (videoRef.current) {
+              setCurrentTime(videoRef.current.currentTime);
+              setDuration(videoRef.current.duration || 0);
+            }
+          }}
           onPlaying={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
+          onPause={() => {
+            setIsPlaying(false);
+            setShowControls(true); // ভিডিও পজ করলে কন্ট্রোল বার শো থাকবে
+          }}
           style={{ objectFit: zoomMode }}
-          className="w-full h-full absolute inset-0 z-0 bg-black"
+          className="w-full h-full absolute inset-0 z-0 bg-black cursor-pointer"
           autoPlay
           playsInline
         />
       )}
 
-      {/* কন্ট্রোল ওভারলে */}
-      <div className="absolute inset-0 z-10 flex flex-col justify-between p-3 sm:p-4 bg-gradient-to-b from-black/80 via-transparent to-black/90 pointer-events-none">
-        
+      {/* ✨ অটো-হাইড অ্যানিমেশন সহ কন্ট্রোল বার ওভারলে */}
+      <div
+        className={`absolute inset-0 z-10 flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
+          showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+      >
         {/* টপ বার */}
-        <div className="flex items-center justify-between gap-2 pointer-events-auto mt-4 sm:mt-0">
-          <button
-            onClick={onClose}
-            className="bg-black/60 hover:bg-white/20 p-2 rounded-full text-white transition"
-            title="Close"
-          >
+        <div className="flex items-center justify-between gap-2">
+          <button onClick={onClose} className="bg-black/60 hover:bg-white/20 p-2 rounded-full text-white">
             <X className="w-5 h-5" />
           </button>
 
-          {/* সার্ভার সিলেক্টর */}
-          <div className="flex items-center gap-1.5 overflow-x-auto max-w-[35%] no-scrollbar">
-            {servers && servers.map((srv, idx) => (
+          {/* সার্ভার লিস্ট */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar max-w-[45%]">
+            {servers?.map((srv, idx) => (
               <button
                 key={idx}
-                onClick={() => {
-                  setCurrentUrl(srv.url);
-                  setSecurityActive(false);
-                }}
-                className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 whitespace-nowrap transition ${
-                  srv.url === currentUrl ? 'bg-blue-600 text-white' : 'bg-black/60 text-slate-300 hover:bg-black/80'
+                onClick={() => setCurrentUrl(srv.url)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition ${
+                  srv.url === currentUrl ? 'bg-blue-600 text-white' : 'bg-black/60 text-slate-300'
                 }`}
               >
-                <Server className="w-3 h-3" />
+                <Server className="w-3 h-3 inline mr-1" />
                 {srv.name || `Server ${idx + 1}`}
               </button>
             ))}
           </div>
 
-          <div className="flex items-center gap-1.5">
-            {/* 🛡️ Secure Stream Player (com.genuine.leone) Button */}
+          <div className="flex items-center gap-1">
             <button
-              onClick={openInSecureStreamPlayer}
-              className="bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-lg border border-purple-400/50 transition active:scale-95"
-              title="Open with Security Guard in Stream Player"
+              onClick={() => openInExternalApp('com.genuine.leone')}
+              className="bg-purple-600 hover:bg-purple-500 text-white px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1"
             >
-              <PlayCircle className="w-3.5 h-3.5" /> Secure Stream
+              <PlayCircle className="w-3 h-3" /> Player
             </button>
-
-            {/* VLC Button */}
             <button
-              onClick={openInVLC}
-              className="bg-orange-600 hover:bg-orange-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition active:scale-95"
-              title="Open in VLC"
+              onClick={() => setUseIframe(!useIframe)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded-md text-[11px] font-bold"
             >
-              <ExternalLink className="w-3.5 h-3.5" /> VLC
-            </button>
-
-            {/* WEB/HLS Switcher */}
-            <button
-              onClick={() => {
-                setUseIframe(!useIframe);
-                setSecurityActive(false);
-              }}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow transition active:scale-95"
-            >
-              <RefreshCw className="w-3 h-3" /> {useIframe ? 'WEB' : 'HLS'}
+              {useIframe ? 'HLS' : 'WEB'}
             </button>
           </div>
         </div>
 
-        {/* বটম কন্ট্রোল বার */}
+        {/* বটম কন্ট্রোল বার (চ্যানেল নেভিগেশন সহ) */}
         {!useIframe && (
-          <div className="flex flex-col gap-2 bg-black/70 backdrop-blur-md p-3 rounded-xl pointer-events-auto">
+          <div className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl">
             {/* সিক বার */}
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={duration > 0 ? (currentTime / duration) * 100 : 0}
-                onChange={(e) => {
-                  if (videoRef.current && duration > 0) {
-                    videoRef.current.currentTime = (parseFloat(e.target.value) / 100) * duration;
-                  }
-                }}
-                className="w-full h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-blue-500"
-              />
-            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={duration > 0 ? (currentTime / duration) * 100 : 0}
+              onChange={(e) => {
+                if (videoRef.current && duration > 0) {
+                  videoRef.current.currentTime = (parseFloat(e.target.value) / 100) * duration;
+                }
+              }}
+              className="w-full h-1 bg-white/30 rounded cursor-pointer accent-blue-500"
+            />
 
-            {/* প্লে ব্যাক নেভিগেশন ও চ্যানেল চেঞ্জার */}
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button onClick={toggleMute} className="text-white hover:text-blue-400 p-1">
-                  {isMuted ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5" />}
-                </button>
-                <button
-                  onClick={cycleSpeed}
-                  className="text-white text-xs font-bold bg-white/10 hover:bg-white/20 px-2 py-1 rounded-md"
-                >
-                  {playbackSpeed}x
-                </button>
-              </div>
+              <button onClick={() => setIsMuted(!isMuted)} className="text-white p-1">
+                {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
+              </button>
 
-              {/* চ্যানেল নেক্সট / প্রিভিয়াস বাটন */}
+              {/* চ্যানেল নেভিগেশন (Next / Previous Channel) */}
               <div className="flex items-center gap-3">
                 {onPrevChannel && (
-                  <button
-                    onClick={() => {
-                      setSecurityActive(false);
-                      onPrevChannel();
-                    }}
-                    className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition active:scale-95"
-                    title="Previous Channel"
-                  >
-                    <SkipBack className="w-5 h-5" />
+                  <button onClick={onPrevChannel} className="p-1.5 bg-white/10 rounded-full text-white active:scale-95">
+                    <SkipBack className="w-4 h-4" />
                   </button>
                 )}
-
                 <button
-                  onClick={togglePlayPause}
-                  className="p-2.5 bg-blue-600 hover:bg-blue-500 rounded-full text-white transition shadow-lg active:scale-95"
+                  onClick={() => (isPlaying ? videoRef.current?.pause() : videoRef.current?.play())}
+                  className="p-2 bg-blue-600 rounded-full text-white shadow-lg active:scale-95"
                 >
-                  {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
+                  {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
                 </button>
-
                 {onNextChannel && (
-                  <button
-                    onClick={() => {
-                      setSecurityActive(false);
-                      onNextChannel();
-                    }}
-                    className="p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition active:scale-95"
-                    title="Next Channel"
-                  >
-                    <SkipForward className="w-5 h-5" />
+                  <button onClick={onNextChannel} className="p-1.5 bg-white/10 rounded-full text-white active:scale-95">
+                    <SkipForward className="w-4 h-4" />
                   </button>
                 )}
               </div>
 
               <div className="flex items-center gap-2">
-                <button onClick={cycleZoomMode} className="text-white hover:text-blue-400 p-1" title="Aspect Ratio">
-                  <Tv className="w-5 h-5" />
+                <button
+                  onClick={() => {
+                    const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
+                    setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
+                  }}
+                  className="text-white p-1"
+                >
+                  <Tv className="w-4 h-4" />
                 </button>
-                <button onClick={toggleFullscreen} className="text-white hover:text-blue-400 p-1">
-                  {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                <button onClick={toggleFullscreen} className="text-white p-1">
+                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                 </button>
               </div>
             </div>
