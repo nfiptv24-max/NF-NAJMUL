@@ -44,14 +44,6 @@ jobs:
         npx cap add android || true
         npx cap sync android
 
-    - name: Inject Android Permissions & Queries
-      run: |
-        MANIFEST="android/app/src/main/AndroidManifest.xml"
-        if [ -f "$MANIFEST" ]; then
-          sed -i 's|</manifest>|<queries><package android:name="com.mxtech.videoplayer.ad"/><package android:name="com.mxtech.videoplayer.pro"/><package android:name="org.videolan.vlc"/><intent><action android:name="android.intent.action.VIEW"/><data android:mimeType="video/*"/></intent><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="http"/></intent><intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent></queries></manifest>|g' "$MANIFEST"
-          echo "Queries successfully injected!"
-        fi
-
     - name: Fix Kotlin Conflict
       run: |
         echo "android.packaging.jniLibs.useLegacyPackaging=true" >> android/gradle.properties
