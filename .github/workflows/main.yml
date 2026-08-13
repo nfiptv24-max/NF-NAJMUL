@@ -38,6 +38,11 @@ jobs:
         npx cap add android
         npx cap sync android
 
+    - name: Set Java Compatibility in Gradle
+      run: |
+        echo "android.packaging.jniLibs.useLegacyPackaging=true" >> android/gradle.properties
+        echo "org.gradle.java.home=${JAVA_HOME_17_X64}" >> android/gradle.properties
+
     - name: Fix Android Manifest Queries
       run: |
         MANIFEST="android/app/src/main/AndroidManifest.xml"
