@@ -1,4 +1,4 @@
-Name: Build Android APK
+name: Build Android APK
 
 on:
   push:
@@ -44,17 +44,31 @@ jobs:
         npx cap add android || true
         npx cap sync android
 
-    # 🚀 নতুন যুক্ত করা হয়েছে: Android Manifest-এ External Players-এর পারমিশন যুক্ত করার স্টেপ
     - name: Inject Android Permissions & Queries
       run: |
-        MANIFEST_PATH="android/app/src/main/AndroidManifest.xml"
-        if [ -f "$MANIFEST_PATH" ]; then
-          # Queries ইনজেকশন করার কোড
-          QUERIES='<queries>\n        <package android:name="com.mxtech.videoplayer.ad" />\n        <package android:name="com.mxtech.videoplayer.pro" />\n        <package android:name="org.videolan.vlc" />\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:mimeType="video/*" />\n        </intent>\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:scheme="http" />\n        </intent>\n        <intent>\n            <action android:name="android.intent.action.VIEW" />\n            <data android:scheme="https" />\n        </intent>\n    </queries>'
-          
-          # Manifest ফাইলে Queries বসিয়ে দেওয়া
-          sed -i "s|</manifest>|${QUERIES}\n</manifest>|" $MANIFEST_PATH
-          echo "Successfully injected permissions and external player queries into AndroidManifest.xml"
+        MANIFEST="android/app/src/main/AndroidManifest.xml"
+        if [ -f "$MANIFEST" ]; then
+          cat << 'EOF' > queries.xml
+    <queries>
+        <package android:name="com.mxtech.videoplayer.ad" />
+        <package android:name="com.mxtech.videoplayer.pro" />
+        <package android:name="org.videolan.vlc" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+EOF
+          sed -i '/<\/manifest>/e cat queries.xml' "$MANIFEST"
+          echo "Queries successfully injected!"
         fi
 
     - name: Fix Kotlin Conflict
