@@ -1,39 +1,7 @@
 <style>
-  /* ১. সম্পূর্ণ পেজের ব্যাকগ্রাউন্ড ও লেআউট ফিক্স */
   html, body {
-    background-color: #000000 !important;
     margin: 0;
     padding: 0;
-    width: 100%;
-    height: 100%;
-    overflow-x: hidden;
-    /* মোবাইল ফোনের কাট-আউট/নচ বা পাঞ্চ-হোল কাভার করার জন্য */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-    /* অ্যাপে টেনে নিচে নামালে যেন কোনো সাদা গ্যাপ বা বাউন্স না করে */
-    overscroll-behavior-y: none;
-    /* মোবাইল ব্রাউজারে টেক্সট জুম ফিক্স */
-    -webkit-text-size-adjust: 100%;
-  }
-
-  /* ২. অ্যাপের মধ্যে টাচ বা ক্লিকে নীল/ধূসর বক্স হাইলাইট বন্ধ করা */
-  * {
-    -webkit-tap-highlight-color: transparent;
-    box-sizing: border-box;
-  }
-
-  /* ৩. অ্যাপ থেকে অপ্রয়োজনীয় স্ক্রলবার পুরো গায়েব করা */
-  ::-webkit-scrollbar {
-    display: none;
-    width: 0px;
-    background: transparent;
-  }
-
-  /* ৪. ইউজার যাতে বারবার সিলেক্ট করে কপি-পেস্ট পপআপ না আনে (ভিডিও অ্যাপের জন্য) */
-  body {
-    -webkit-user-select: none;
-    user-select: none;
+    background-color: #000000;
   }
 </style>
