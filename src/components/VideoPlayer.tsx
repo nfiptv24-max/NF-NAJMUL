@@ -16,9 +16,13 @@ import {
   SkipForward,
   PlayCircle,
   AlertTriangle,
-  Smartphone
+  Smartphone,
+  Layers
 } from 'lucide-react';
 import { ServerLink, ZoomMode } from '../types';
+
+// সাপোর্ট করা সকল প্লেয়ার মোড
+type PlayerMode = 'hls' | 'dash' | 'native' | 'iframe' | 'external';
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -46,7 +50,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [useIframe, setUseIframe] = useState(false);
+  const [playerMode, setPlayerMode] = useState<PlayerMode>('hls');
   const [hasError, setHasError] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentUrl, setCurrentUrl] = useState(streamUrl);
@@ -87,15 +91,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isPlaying]);
 
-  // HTTPS পেইজে HTTP লিঙ্ক ব্লক চেক
+  // Mixed Content Check
   const checkMixedContent = (url: string) => {
     return window.location.protocol === 'https:' && url.startsWith('http://');
   };
 
   useEffect(() => {
     setCurrentUrl(streamUrl);
-    setUseIframe(false);
     setHasError(checkMixedContent(streamUrl));
+    
+    // অটোমেটিক বেস্ট মোড ডিটেকশন
+    if (streamUrl.toLowerCase().includes('.mpd')) {
+      setPlayerMode('dash');
+    } else if (streamUrl.toLowerCase().includes('.m3u8')) {
+      setPlayerMode('hls');
+    } else if (streamUrl.includes('embed') || streamUrl.includes('iframe') || streamUrl.includes('.html')) {
+      setPlayerMode('iframe');
+    } else {
+      setPlayerMode('native');
+    }
   }, [streamUrl]);
 
   const cleanupPlayer = () => {
@@ -110,11 +124,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
+  // 🎬 বিভিন্ন প্লেয়ার মোড লোড করার লজিক
   useEffect(() => {
     cleanupPlayer();
     setHasError(false);
 
-    if (useIframe) return;
+    if (playerMode === 'iframe' || playerMode === 'external') return;
 
     if (checkMixedContent(currentUrl)) {
       setHasError(true);
@@ -124,17 +139,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video || !currentUrl) return;
 
-    if (Hls.isSupported() && currentUrl.toLowerCase().includes('.m3u8')) {
+    // ১. HLS Stream Mode
+    if (playerMode === 'hls' && Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
       hlsRef.current = hls;
       hls.loadSource(currentUrl);
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().then(() => {
-          setIsPlaying(true);
-        }).catch((err) => {
-          console.warn("Autoplay blocked, attempting muted play:", err);
+        video.play().then(() => setIsPlaying(true)).catch(() => {
           video.muted = true;
           setIsMuted(true);
           video.play().then(() => setIsPlaying(true)).catch(() => setHasError(true));
@@ -142,11 +155,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          setHasError(true);
-        }
+        if (data.fatal) setHasError(true);
       });
-    } else {
+    } 
+    // ২. MP4, Direct Link, FLV বা Native Engine Mode
+    else {
       video.src = currentUrl;
       video.play().then(() => setIsPlaying(true)).catch(() => {
         video.muted = true;
@@ -156,7 +169,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     return () => cleanupPlayer();
-  }, [currentUrl, useIframe]);
+  }, [currentUrl, playerMode]);
 
   // Mute / Unmute Syncing
   useEffect(() => {
@@ -165,19 +178,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [isMuted]);
 
-  // 🚀 যেকোনো এক্সটার্নাল অ্যাপ (MX Player, VLC, All Players) দিয়ে প্লে করার লজিক
-  const openInExternalApp = (appType: 'mx' | 'vlc' | 'any') => {
-    const encodedTitle = encodeURIComponent(title);
-
-    if (appType === 'mx') {
-      // নির্দিষ্ট MX Player
-      window.location.href = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=com.mxtech.videoplayer.ad;S.title=${encodedTitle};end;`;
-    } else if (appType === 'vlc') {
-      // নির্দিষ্ট VLC Player
+  // 🚀 Android Intent দিয়ে বিশ্বমানের সকল এক্সটার্নাল অ্যাপ অপশন হ্যান্ডেল করা
+  const openInExternalApp = (target: 'mx' | 'vlc' | 'any') => {
+    const titleParam = encodeURIComponent(title);
+    
+    if (target === 'mx') {
+      window.location.href = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=com.mxtech.videoplayer.ad;S.title=${titleParam};end;`;
+    } else if (target === 'vlc') {
       window.location.href = `vlc://${currentUrl}`;
     } else {
-      // 📱 যেকোনো External Player (System App Chooser)
-      window.location.href = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;S.title=${encodedTitle};end;`;
+      // 📱 যেকোনো External Player (System App Chooser Popup)
+      const genericIntent = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;S.title=${titleParam};end;`;
+      window.location.href = genericIntent;
     }
   };
 
@@ -239,7 +251,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }`}
     >
       {/* ⚠️ স্ট্রিমিং এরর / External Player অপশন ওভারলে */}
-      {hasError && !useIframe ? (
+      {hasError && playerMode !== 'iframe' ? (
         <div 
           onClick={(e) => e.stopPropagation()} 
           className="absolute inset-0 z-30 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center overflow-y-auto"
@@ -247,10 +259,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <AlertTriangle className="w-10 h-10 text-amber-400 mb-2 animate-bounce" />
           <h3 className="text-white text-sm font-bold mb-1">ভিডিও প্লে হতে সমস্যা হচ্ছে?</h3>
           <p className="text-slate-400 text-xs mb-4 max-w-xs">
-            নিচের যেকোনো প্লেয়ার সিলেক্ট করে ভিডিওটি দেখুন:
+            সার্ভার মোড পরিবর্তন করুন অথবা নিচের পছন্দের প্লেয়ার দিয়ে প্লে করুন:
           </p>
           <div className="flex flex-wrap gap-2 justify-center max-w-sm">
-            {/* MX Player Button */}
             <button
               onClick={() => openInExternalApp('mx')}
               className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition"
@@ -258,7 +269,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <PlayCircle className="w-4 h-4" /> MX Player
             </button>
 
-            {/* VLC Player Button */}
             <button
               onClick={() => openInExternalApp('vlc')}
               className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition"
@@ -266,7 +276,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <ExternalLink className="w-4 h-4" /> VLC Player
             </button>
 
-            {/* Other / Any Apps Option */}
             <button
               onClick={() => openInExternalApp('any')}
               className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition"
@@ -274,19 +283,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <Smartphone className="w-4 h-4" /> Other Players
             </button>
 
-            {/* Web Iframe Mode */}
             <button
-              onClick={() => setUseIframe(true)}
+              onClick={() => setPlayerMode('iframe')}
               className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition"
             >
-              <RefreshCw className="w-4 h-4" /> Web Iframe
+              <RefreshCw className="w-4 h-4" /> Iframe Mode
             </button>
           </div>
         </div>
       ) : null}
 
-      {/* ভিডিও বা আইফ্রেম প্লেয়ার */}
-      {useIframe ? (
+      {/* 📺 বিভিন্ন প্লেয়ার মোড অনুযায়ী ভিডিও বা আইফ্রেম রেন্ডার */}
+      {playerMode === 'iframe' ? (
         <iframe
           src={currentUrl}
           className="w-full h-full border-0 absolute inset-0 z-0 bg-black"
@@ -315,7 +323,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         />
       )}
 
-      {/* 🎛️ কন্ট্রোল বার ওভারলে */}
+      {/* 🎛️ সার্বজনীন কন্ট্রোল বার ওভারলে (সকল মোডেই দৃশ্যমান থাকবে) */}
       <div
         onClick={(e) => e.stopPropagation()} 
         className={`absolute inset-0 z-20 flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
@@ -329,7 +337,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </button>
 
           {/* সার্ভার লিস্ট */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar max-w-[40%]">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar max-w-[35%]">
             {servers?.map((srv, idx) => (
               <button
                 key={idx}
@@ -344,54 +352,60 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ))}
           </div>
 
+          {/* মোড সিলেকশন ও External App বাটন */}
           <div className="flex items-center gap-1">
-            {/* টপ বারে সরাসরি External Player এ খেলার বাটন */}
+            {/* প্লেয়ার মোড সিলেক্টর (HLS, DASH, WEB, IFRAME) */}
+            <select
+              value={playerMode}
+              onChange={(e) => setPlayerMode(e.target.value as PlayerMode)}
+              className="bg-slate-800 text-white text-[11px] font-bold px-2 py-1 rounded-md border border-slate-700 outline-none"
+            >
+              <option value="hls">HLS</option>
+              <option value="native">Direct/MP4</option>
+              <option value="iframe">Embed/WEB</option>
+            </select>
+
             <button
               onClick={() => openInExternalApp('any')}
               className="bg-purple-600 hover:bg-purple-500 text-white px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1"
-              title="Open in External App"
+              title="Open in App"
             >
               <Smartphone className="w-3 h-3" /> App
-            </button>
-
-            <button
-              onClick={() => setUseIframe(!useIframe)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded-md text-[11px] font-bold"
-            >
-              {useIframe ? 'HLS' : 'WEB'}
             </button>
           </div>
         </div>
 
-        {/* বটম কন্ট্রোল বার */}
-        {!useIframe && (
-          <div className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl">
-            {/* সিক বার */}
+        {/* বটম কন্ট্রোল বার (সকল মোড এবং HLS মোডেই কাজ করবে) */}
+        <div className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl">
+          {/* সিক বার (যদি ডুরেশন থাকে) */}
+          {duration > 0 && playerMode !== 'iframe' && (
             <input
               type="range"
               min="0"
               max="100"
-              value={duration > 0 ? (currentTime / duration) * 100 : 0}
+              value={(currentTime / duration) * 100}
               onChange={(e) => {
-                if (videoRef.current && duration > 0) {
+                if (videoRef.current) {
                   videoRef.current.currentTime = (parseFloat(e.target.value) / 100) * duration;
                 }
               }}
               className="w-full h-1 bg-white/30 rounded cursor-pointer accent-blue-500"
             />
+          )}
 
-            <div className="flex items-center justify-between">
-              <button onClick={() => setIsMuted(!isMuted)} className="text-white p-1">
-                {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
-              </button>
+          <div className="flex items-center justify-between">
+            <button onClick={() => setIsMuted(!isMuted)} className="text-white p-1">
+              {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
+            </button>
 
-              {/* চ্যানেল নেভিগেশন (Next / Previous) */}
-              <div className="flex items-center gap-3">
-                {onPrevChannel && (
-                  <button onClick={onPrevChannel} className="p-1.5 bg-white/10 rounded-full text-white active:scale-95">
-                    <SkipBack className="w-4 h-4" />
-                  </button>
-                )}
+            {/* চ্যানেল নেভিগেশন (Next / Previous Channel) - সকল মোডেই অন থাকবে */}
+            <div className="flex items-center gap-3">
+              {onPrevChannel && (
+                <button onClick={onPrevChannel} className="p-1.5 bg-white/10 rounded-full text-white active:scale-95 hover:bg-white/20 transition">
+                  <SkipBack className="w-4 h-4" />
+                </button>
+              )}
+              {playerMode !== 'iframe' && (
                 <button
                   onClick={() => {
                     if (videoRef.current) {
@@ -406,30 +420,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 >
                   {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
                 </button>
-                {onNextChannel && (
-                  <button onClick={onNextChannel} className="p-1.5 bg-white/10 rounded-full text-white active:scale-95">
-                    <SkipForward className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
+              )}
+              {onNextChannel && (
+                <button onClick={onNextChannel} className="p-1.5 bg-white/10 rounded-full text-white active:scale-95 hover:bg-white/20 transition">
+                  <SkipForward className="w-4 h-4" />
+                </button>
+              )}
+            </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
-                    setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
-                  }}
-                  className="text-white p-1"
-                >
-                  <Tv className="w-4 h-4" />
-                </button>
-                <button onClick={toggleFullscreen} className="text-white p-1">
-                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </button>
-              </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
+                  setZoomMode(modes[(modes.indexOf(zoomMode) + 1) % modes.length]);
+                }}
+                className="text-white p-1"
+              >
+                <Tv className="w-4 h-4" />
+              </button>
+              <button onClick={toggleFullscreen} className="text-white p-1">
+                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
