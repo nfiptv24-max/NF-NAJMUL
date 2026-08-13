@@ -52,7 +52,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [zoomMode, setZoomMode] = useState<ZoomMode>('contain');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-
   const [showControls, setShowControls] = useState(true);
 
   const resetControlsTimeout = () => {
@@ -72,10 +71,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isPlaying]);
 
+  const checkMixedContent = (url: string) => {
+    if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+      return true;
+    }
+    return false;
+  };
+
   useEffect(() => {
     setCurrentUrl(streamUrl);
     setUseIframe(false);
-    setHasError(false);
+    setHasError(checkMixedContent(streamUrl));
   }, [streamUrl]);
 
   const cleanupPlayer = () => {
@@ -94,6 +100,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     cleanupPlayer();
 
     if (useIframe) return;
+
+    if (checkMixedContent(currentUrl)) {
+      setHasError(true);
+      return;
+    }
 
     const video = videoRef.current;
     if (!video || !currentUrl) return;
@@ -119,13 +130,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => cleanupPlayer();
   }, [currentUrl, useIframe]);
 
-  // 🚀 ফিক্সড এক্সটার্নাল অ্যাপ রিডাইরেক্ট লজিক
   const openInExternalApp = (packageName?: string) => {
     if (!currentUrl) return;
 
     if (packageName === 'com.genuine.leone') {
-      // Stream Player (com.genuine.leone) অ্যাপ খোলার জন্য সঠিক অ্যান্ড্রয়েড ইনটেন্ট ইউআরএল
-      const cleanUrl = currentUrl.replace(/^https?:\/\//, ''); // http:// বা https:// অংশ বাদ দেওয়া
+      const cleanUrl = currentUrl.replace(/^https?:\/\//, '');
       const isHttps = currentUrl.startsWith('https://');
       const scheme = isHttps ? 'https' : 'http';
 
@@ -139,12 +148,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       window.location.href = intentUrl;
     } else {
-      // VLC প্লেয়ার রিডাইরেক্ট
       window.location.href = `vlc://${currentUrl}`;
     }
   };
 
-  // 📱 মোবাইল অ্যাপের জন্য ফুলস্ক্রিন
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
   };
@@ -152,45 +159,46 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   return (
     <div
       ref={containerRef}
-      onMouseMove={resetControlsTimeout}
+      onClick={resetControlsTimeout}
       onTouchStart={resetControlsTimeout}
-      className={`bg-black overflow-hidden select-none transition-all duration-300 ${
+      className={`bg-black overflow-hidden select-none ${
         isFullscreen
-          ? 'fixed inset-0 z-[99999] w-screen h-screen m-0 p-0 rounded-none'
+          ? 'fixed inset-0 z-50 w-full h-full'
           : 'relative w-full aspect-video rounded-b-xl'
       }`}
-      style={{
-        backgroundColor: '#000000',
-        width: isFullscreen ? '100vw' : '100%',
-        height: isFullscreen ? '100vh' : 'auto',
-      }}
     >
-      {/* স্ট্রিমিং এরর / Blocked ওভারলে */}
+      {/* ১. এরর ওভারলে */}
       {hasError && !useIframe ? (
         <div className="absolute inset-0 z-30 bg-slate-950/95 flex flex-col items-center justify-center p-4 text-center">
           <AlertTriangle className="w-10 h-10 text-amber-400 mb-2 animate-bounce" />
-          <h3 className="text-white text-sm font-bold mb-1">Stream Loading Failed</h3>
+          <h3 className="text-white text-sm font-bold mb-1">Stream Blocked (Mixed Content / CORS)</h3>
           <p className="text-slate-400 text-xs mb-4 max-w-xs">
-            ভিডিওটি অ্যাপের ভেতরে লোড হতে পারছে না। এক্সটার্নাল প্লেয়ার ব্যবহার করুন।
+            HTTPS সিকিউরিটির কারণে এই HTTP স্ট্রিমটি সরাসরি প্লে হচ্ছে না। এক্সটার্নাল প্লেয়ারে ওপেন করুন।
           </p>
           <div className="flex flex-wrap gap-2 justify-center">
             <button
               onClick={() => openInExternalApp('com.genuine.leone')}
-              className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition"
+              className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow"
             >
               <PlayCircle className="w-4 h-4" /> Stream Player
             </button>
             <button
               onClick={() => openInExternalApp()}
-              className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow active:scale-95 transition"
+              className="bg-orange-600 hover:bg-orange-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow"
             >
               <ExternalLink className="w-4 h-4" /> VLC
+            </button>
+            <button
+              onClick={() => setUseIframe(true)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow"
+            >
+              <RefreshCw className="w-4 h-4" /> Web Iframe
             </button>
           </div>
         </div>
       ) : null}
 
-      {/* ভিডিও প্লেয়ার */}
+      {/* ২. ভিডিও প্লেয়ার */}
       {useIframe ? (
         <iframe
           src={currentUrl}
@@ -219,7 +227,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         />
       )}
 
-      {/* অটো-হাইড কন্ট্রোল বার ওভারলে */}
+      {/* ৩. কন্ট্রোল ওভারলে */}
       <div
         className={`absolute inset-0 z-10 flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
           showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -231,7 +239,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <X className="w-5 h-5" />
           </button>
 
-          {/* সার্ভার লিস্ট */}
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar max-w-[45%]">
             {servers?.map((srv, idx) => (
               <button
@@ -266,7 +273,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {/* বটম কন্ট্রোল বার */}
         {!useIframe && (
           <div className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl">
-            {/* সিক বার */}
             <input
               type="range"
               min="0"
@@ -285,7 +291,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
               </button>
 
-              {/* চ্যানেল নেভিগেশন */}
               <div className="flex items-center gap-3">
                 {onPrevChannel && (
                   <button onClick={onPrevChannel} className="p-1.5 bg-white/10 rounded-full text-white">
