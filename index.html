@@ -11,6 +11,37 @@
     <!-- অ্যাপ লোগো / ফেভিকন -->
     <link rel="icon" type="image/png" href="https://i.supaimg.com/83afe636-c743-4025-87ea-6f9f3f10d71f/958f2be3-57b5-4164-a057-5a2f37e6ef3a.png" />
     <link rel="apple-touch-icon" href="https://i.supaimg.com/83afe636-c743-4025-87ea-6f9f3f10d71f/958f2be3-57b5-4164-a057-5a2f37e6ef3a.png" />
+    
+    <!-- ✅ Android Intent Support - এই স্ক্রিপ্ট যোগ করুন -->
+    <script>
+      // Handle intent fallback for Android
+      (function() {
+        if (navigator.userAgent.includes('Android')) {
+          console.log('📱 Android detected - Intent support enabled');
+          
+          // Intent click handler
+          document.addEventListener('click', function(e) {
+            const target = e.target.closest('[data-intent]');
+            if (target) {
+              const url = target.dataset.intent;
+              if (url && url.startsWith('intent://')) {
+                console.log('🔗 Opening intent:', url);
+                window.location.href = url;
+                // Fallback after 2 seconds
+                setTimeout(() => {
+                  if (!document.hidden) {
+                    const directUrl = url.replace(/^intent:\/\//, 'https://');
+                    console.log('🔄 Intent fallback to:', directUrl);
+                    window.location.href = directUrl;
+                  }
+                }, 2000);
+                e.preventDefault();
+              }
+            }
+          });
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
