@@ -19,6 +19,7 @@ import {
   Smartphone
 } from 'lucide-react';
 import { ServerLink, ZoomMode } from '../types';
+import { PlayerSelectionModal } from './PlayerSelectionModal';
 
 type PlayerMode = 'hls' | 'dash' | 'native' | 'iframe' | 'external';
 
@@ -57,6 +58,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [duration, setDuration] = useState(0);
 
   const [showControls, setShowControls] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const resetControlsTimeout = () => {
     setShowControls(true);
@@ -123,7 +125,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!video || !currentUrl) return;
 
     if (playerMode === 'hls' && Hls.isSupported()) {
-      // 🚀 CORS ও স্ট্রিম ব্লক প্রতিরোধ করতে বিশেষ HLS কনফিগারেশন
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
@@ -177,7 +178,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [isMuted]);
 
-  // 🚀 ১০০% কার্যকরী Android External Player Intent Fix
   const openInExternalApp = (target: 'mx' | 'vlc' | 'any') => {
     if (!currentUrl) return;
 
@@ -196,7 +196,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       intentUri = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;S.title=${encodedTitle};end;`;
     }
 
-    // ব্রাউজারে বা অ্যাপে প্লেয়ার ওপেন করা
     window.location.href = intentUri;
   };
 
@@ -275,7 +274,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }`}
       style={{ backgroundColor: '#000000' }}
     >
-      {/* ⚠️ এরর ওভারলে */}
+      {/* ⚠️ Error Overlay */}
       {hasError && playerMode !== 'iframe' ? (
         <div 
           onClick={(e) => e.stopPropagation()} 
@@ -318,7 +317,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       ) : null}
 
-      {/* 📺 ভিডিও অথবা আইফ্রেম */}
+      {/* 📺 Video Player or Iframe */}
       {playerMode === 'iframe' ? (
         <iframe
           src={currentUrl}
@@ -348,7 +347,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         />
       )}
 
-      {/* 🎛️ কন্ট্রোল ওভারলে */}
+      {/* 🎛️ Control Overlay */}
       <div
         onClick={(e) => e.stopPropagation()} 
         className={`absolute inset-0 z-20 flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
@@ -360,13 +359,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           paddingRight: 'calc(12px + env(safe-area-inset-right))',
         }}
       >
-        {/* টপ বার */}
+        {/* Top Controls Bar */}
         <div className="flex items-center justify-between gap-2">
           <button onClick={onClose} className="bg-black/60 hover:bg-white/20 p-2 rounded-full text-white">
             <X className="w-5 h-5" />
           </button>
 
-          {/* সার্ভার লিস্ট */}
+          {/* Server Selector List */}
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar max-w-[35%]">
             {servers?.map((srv, idx) => (
               <button
@@ -393,16 +392,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <option value="iframe">Embed/WEB</option>
             </select>
 
+            {/* 📱 App Button triggers Player Selection Modal */}
             <button
-              onClick={() => openInExternalApp('any')}
-              className="bg-purple-600 hover:bg-purple-500 text-white px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1"
+              onClick={() => setIsModalOpen(true)}
+              className="bg-purple-600 hover:bg-purple-500 text-white px-2 py-1 rounded-md text-[11px] font-bold flex items-center gap-1 shadow transition"
             >
               <Smartphone className="w-3 h-3" /> App
             </button>
           </div>
         </div>
 
-        {/* বটম কন্ট্রোল বার */}
+        {/* Bottom Controls Bar */}
         <div 
           className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl"
           style={{
@@ -477,6 +477,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* 📱 Player Selection Popup Modal Integration */}
+      <PlayerSelectionModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        videoUrl={currentUrl}
+        videoTitle={title}
+      />
     </div>
   );
 };
