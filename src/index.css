@@ -14,21 +14,20 @@
     --success: #2ecc71;
   }
 
-  /* ফুলস্ক্রিন ফিক্স: রুট লেভেলে মার্জিন ও প্যাডিং জিরো করা হয়েছে */
+  /* 🚀 ফিক্স: height এর বদলে min-height দেওয়া হয়েছে */
   html, body, #root {
     width: 100%;
-    height: 100%;
+    min-height: 100vh;
     margin: 0;
     padding: 0;
-    background-color: #000000 !important;
+    background-color: var(--bg-main);
   }
 
   body {
-    background-color: var(--bg-main);
     color: var(--text-main);
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    min-height: 100vh;
-    overflow: hidden; /* অ্যাপের বাইরে যেন স্ক্রল না হয় */
+    /* 🚀 ফিক্স: overflow-x: hidden করা হয়েছে, যাতে অ্যাপ স্ক্রল হয় এবং বটম মেনু কাজ করে */
+    overflow-x: hidden; 
     -webkit-tap-highlight-color: transparent;
   }
 }
@@ -108,4 +107,31 @@ body.tv-mode *:focus {
   border-radius: 50%;
   background-color: var(--danger);
   animation: pulse-red 1.5s infinite;
+}
+
+/* =======================================================
+   🚀 ভিডিও ফুলস্ক্রিন মোড ফিক্স (নতুন যোগ করা হয়েছে)
+======================================================= */
+*:fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background-color: #000000 !important;
+}
+
+*:-webkit-full-screen {
+  width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background-color: #000000 !important;
+}
+
+/* ভিডিও ফুলস্ক্রিন হওয়ার সময় বাকি সব মেনু হাইড করে দেবে */
+body:has(:fullscreen) nav,
+body:has(:fullscreen) header,
+body:has(:fullscreen) footer,
+body:has(:fullscreen) .bottom-nav {
+  display: none !important;
 }
