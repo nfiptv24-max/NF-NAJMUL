@@ -1,0 +1,95 @@
+// src/hooks/useExternalPlayer.ts
+import { useCallback } from 'react';
+
+interface UseExternalPlayerProps {
+  videoUrl: string;
+  videoTitle?: string;
+}
+
+export const useExternalPlayer = ({ videoUrl, videoTitle = 'Live Stream' }: UseExternalPlayerProps) => {
+  
+  const openInExternalPlayer = useCallback((target: 'mx' | 'vlc' | 'any' | 'web' | 'xp' | 'network') => {
+    if (!videoUrl) {
+      console.error('❌ No video URL provided');
+      return;
+    }
+
+    console.log('🎯 Opening in player:', target, 'URL:', videoUrl);
+
+    // For Web Player - Open in new window with proper HTML5 video
+    if (target === 'web') {
+      const html = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <title>${videoTitle}</title>
+            <style>
+              * { margin: 0; padding: 0; }
+              body { background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; }
+              video { width: 100%; height: 100%; object-fit: contain; }
+            </style>
+          </head>
+          <body>
+            <video controls autoplay playsinline>
+              <source src="${videoUrl}" type="video/mp4">
+              Your browser does not support the video tag.
+            </video>
+          </body>
+        </html>
+      `;
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return;
+    }
+
+    // For Network Stream - Use the URL directly
+    if (target === 'network') {
+      window.open(videoUrl, '_blank');
+      return;
+    }
+
+    // For Android Apps - Proper Intent handling
+    const rawUrl = videoUrl.replace(/^https?:\/\//, '');
+    const isHttps = videoUrl.startsWith('https://');
+    const scheme = isHttps ? 'https' : 'http';
+    const encodedTitle = encodeURIComponent(videoTitle);
+
+    let intentUri = '';
+
+    if (target === 'mx') {
+      // MX Player
+      intentUri = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=com.mxtech.videoplayer.ad;S.title=${encodedTitle};end;`;
+    } else if (target === 'vlc') {
+      // VLC Player
+      intentUri = `vlc://${videoUrl}`;
+    } else if (target === 'xp') {
+      // XP Player
+      intentUri = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=com.xpplayer;S.title=${encodedTitle};end;`;
+    } else {
+      // Any Player - Let Android choose
+      intentUri = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;S.title=${encodedTitle};end;`;
+    }
+
+    // Try to open with intent
+    try {
+      // @ts-ignore - For Android WebView
+      if (window.navigator && window.navigator.userAgent && window.navigator.userAgent.includes('Android')) {
+        console.log('📱 Opening Android intent:', intentUri);
+        window.location.href = intentUri;
+      } else {
+        // Fallback for non-Android or if intent fails
+        console.log('🌐 Opening in browser:', videoUrl);
+        window.open(videoUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('❌ Failed to open external player:', error);
+      // Fallback: try direct URL
+      window.open(videoUrl, '_blank');
+    }
+  }, [videoUrl, videoTitle]);
+
+  return { openInExternalPlayer };
+};
