@@ -124,10 +124,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video || !currentUrl) return;
 
+    // 🚀 HLS Configuration Update for CORS & Better Streaming Performance
     if (playerMode === 'hls' && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
+        backBufferLength: 90,
+        fetchSetup: (context, init) => {
+          init.referrerPolicy = 'no-referrer';
+          return new Request(context.url, init);
+        },
         xhrSetup: (xhr) => {
           xhr.withCredentials = false;
         }
@@ -138,6 +144,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       hls.attachMedia(video);
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        // 🚀 Browser Autoplay Policy Bypass Logic
         video.play().then(() => setIsPlaying(true)).catch(() => {
           video.muted = true;
           setIsMuted(true);
@@ -328,6 +335,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       ) : (
         <video
           ref={videoRef}
+          crossOrigin="anonymous" // CORS বাইপাস করতে
           onError={() => setHasError(true)}
           onTimeUpdate={() => {
             if (videoRef.current) {
@@ -335,7 +343,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               setDuration(videoRef.current.duration || 0);
             }
           }}
-          onPlaying={() => setIsPlaying(true)}
+          onPlaying={() => {
+            setIsPlaying(true);
+            setHasError(false);
+          }}
           onPause={() => {
             setIsPlaying(false);
             setShowControls(true);
