@@ -1,4 +1,4 @@
-name: Build Android APK
+Name: Build Android APK
 
 on:
   push:
@@ -25,18 +25,48 @@ jobs:
         java-version: '21'
 
     - name: Install Dependencies
-      run: npm install
+      run: npm install --legacy-peer-deps
 
     - name: Build Web Assets
       run: npm run build
 
     - name: Setup & Add Capacitor Android Platform
       run: |
-        npm install @capacitor/core @capacitor/cli @capacitor/android
+        npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
         npx cap init "NAFI TV 24" "com.nafitv24.app" --web-dir dist || true
         rm -rf android
         npx cap add android
         npx cap sync android
+
+    - name: Inject Immersive Fullscreen (Hide Status & Nav Bar)
+      run: |
+        node -e '
+          const fs = require("fs");
+          const path = "android/app/src/main/java/com/nafitv24/app/MainActivity.java";
+          if (fs.existsSync(path)) {
+            let code = `package com.nafitv24.app;
+
+import android.os.Bundle;
+import android.view.View;
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            | View.SYSTEM_UI_FLAG_FULLSCREEN
+            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        );
+    }
+}`;
+            fs.writeFileSync(path, code);
+          }
+        '
 
     - name: Force Java 21, SDK 36, MinSDK 24 & Fix Duplicate Classes
       run: |
