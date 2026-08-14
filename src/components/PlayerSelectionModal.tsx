@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Globe, X, Server, ExternalLink, Smartphone } from 'lucide-react';
+import { Play, Globe, X, Server } from 'lucide-react';
 
 interface PlayerSelectionModalProps {
   isOpen: boolean;
@@ -16,8 +16,8 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  // 🎯 Proper Intent with Activity and Flags
-  const playInExternalApp = (videoUrl: string, packageName: string, activityName?: string) => {
+  // 🎯 Improved Intent with proper flags and no fallback
+  const playInExternalApp = (videoUrl: string, packageName: string) => {
     if (!videoUrl) {
       console.error('❌ No video URL');
       return;
@@ -25,58 +25,44 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
 
     console.log('🎯 Opening URL:', videoUrl);
     console.log('📦 Package:', packageName);
-    console.log('🎯 Activity:', activityName || 'Default');
 
+    // Check if Android
+    const isAndroid = navigator.userAgent.includes('Android');
+    
+    if (!isAndroid) {
+      console.log('💻 Not Android, opening in browser');
+      window.open(videoUrl, '_blank');
+      return;
+    }
+
+    // Clean URL
     const rawUrl = videoUrl.replace(/^https?:\/\//, '');
     const isHttps = videoUrl.startsWith('https://');
     const scheme = isHttps ? 'https' : 'http';
     const encodedTitle = encodeURIComponent(videoTitle);
 
-    // Build Intent with Component (Activity)
-    let intentUrl = '';
-    
-    if (activityName) {
-      // Specific Activity
-      intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=${packageName};component=${packageName}/${activityName};S.title=${encodedTitle};end;`;
-    } else {
-      // Default Activity
-      intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=${packageName};S.title=${encodedTitle};end;`;
-    }
+    // Build Intent WITHOUT component/activity - let app handle it
+    const intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=${packageName};S.title=${encodedTitle};S.infos=Video;end;`;
 
-    const isAndroid = navigator.userAgent.includes('Android');
-    
-    if (isAndroid) {
-      console.log('📱 Opening intent:', intentUrl);
+    console.log('📱 Opening intent:', intentUrl);
+
+    try {
+      // Direct intent - no fallback
+      window.location.href = intentUrl;
       
-      // Try multiple methods to open
-      try {
-        // Method 1: Direct intent
-        window.location.href = intentUrl;
-        
-        // Method 2: Fallback with iframe (for some browsers)
-        setTimeout(() => {
-          if (!document.hidden) {
-            console.log('🔄 Fallback 1: Trying alternative method');
-            // Try with market://
-            const marketUrl = `market://details?id=${packageName}`;
-            window.location.href = marketUrl;
-          }
-        }, 1500);
+      // Only fallback if page doesn't hide (intent failed)
+      setTimeout(() => {
+        if (!document.hidden) {
+          console.log('⚠️ Intent failed, trying alternate method');
+          // Try with different intent format
+          const altIntent = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/mp4;package=${packageName};end;`;
+          window.location.href = altIntent;
+        }
+      }, 1000);
 
-        // Method 3: Final fallback - open directly
-        setTimeout(() => {
-          if (!document.hidden) {
-            console.log('🔄 Fallback 2: Opening directly');
-            window.open(videoUrl, '_blank');
-          }
-        }, 3000);
-        
-      } catch (error) {
-        console.error('❌ Error opening app:', error);
-        window.open(videoUrl, '_blank');
-      }
-    } else {
-      // Desktop: Open in new tab
+    } catch (error) {
+      console.error('❌ Error:', error);
+      // Final fallback - direct URL
       window.open(videoUrl, '_blank');
     }
   };
@@ -108,10 +94,11 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 60000);
+    onClose();
   };
 
-  // 📋 Network Stream
-  const handleNetworkStream = () => {
+  // 📋 Copy URL
+  const handleCopyUrl = () => {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(videoUrl)
         .then(() => alert('✅ Stream URL copied to clipboard!'))
@@ -119,35 +106,8 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
     } else {
       prompt('📋 Copy this URL:', videoUrl);
     }
+    onClose();
   };
-
-  // 🎯 Player Configurations with proper Activities
-  const players = [
-    {
-      id: 'mx',
-      label: 'MX Player',
-      icon: 'MX',
-      color: 'bg-orange-500',
-      package: 'com.mxtech.videoplayer.ad',
-      activity: 'com.mxtech.videoplayer.ad.ActivityWelcomeMX'
-    },
-    {
-      id: 'vlc',
-      label: 'VLC Player',
-      icon: '🎬',
-      color: 'bg-orange-600',
-      package: 'org.videolan.vlc',
-      activity: 'org.videolan.vlc.StartActivity'
-    },
-    {
-      id: 'network',
-      label: 'Network Player',
-      icon: '📡',
-      color: 'bg-blue-600',
-      package: 'com.genuine.leone',
-      activity: 'com.genuine.leone.ui.splash.SplashActivity'
-    }
-  ];
 
   return (
     <div 
@@ -187,10 +147,7 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
           
           {/* Web Player */}
           <button 
-            onClick={() => {
-              handleWebPlayer();
-              onClose();
-            }}
+            onClick={handleWebPlayer}
             className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-red-500 rounded-xl transition group"
           >
             <div className="flex items-center gap-3">
@@ -203,7 +160,7 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
           {/* MX Player */}
           <button 
             onClick={() => {
-              playInExternalApp(videoUrl, 'com.mxtech.videoplayer.ad', 'com.mxtech.videoplayer.ad.ActivityWelcomeMX');
+              playInExternalApp(videoUrl, 'com.mxtech.videoplayer.ad');
               onClose();
             }}
             className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-orange-500 rounded-xl transition group"
@@ -218,7 +175,7 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
           {/* VLC Player */}
           <button 
             onClick={() => {
-              playInExternalApp(videoUrl, 'org.videolan.vlc', 'org.videolan.vlc.StartActivity');
+              playInExternalApp(videoUrl, 'org.videolan.vlc');
               onClose();
             }}
             className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-orange-600 rounded-xl transition group"
@@ -230,10 +187,10 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
             <span className="text-xs text-gray-500">📺 Media Player</span>
           </button>
 
-          {/* Network Player (Genuine Leone) */}
+          {/* Network Player - Genuine Leone */}
           <button 
             onClick={() => {
-              playInExternalApp(videoUrl, 'com.genuine.leone', 'com.genuine.leone.ui.splash.SplashActivity');
+              playInExternalApp(videoUrl, 'com.genuine.leone');
               onClose();
             }}
             className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-blue-500 rounded-xl transition group"
@@ -245,12 +202,9 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
             <span className="text-xs text-gray-500">📡 Genuine Leone</span>
           </button>
 
-          {/* Network Stream - Copy URL */}
+          {/* Copy URL */}
           <button 
-            onClick={() => {
-              handleNetworkStream();
-              onClose();
-            }}
+            onClick={handleCopyUrl}
             className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-green-500 rounded-xl transition group"
           >
             <div className="flex items-center gap-3">
@@ -262,9 +216,8 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
 
         </div>
 
-        {/* Note */}
         <p className="text-center text-[10px] text-gray-500 mt-4">
-          💡 অ্যাপ ইনস্টল না থাকলে Play Store এ নিয়ে যাবে
+          💡 অ্যাপ ইনস্টল থাকলে সরাসরি খুলবে
         </p>
 
       </div>
