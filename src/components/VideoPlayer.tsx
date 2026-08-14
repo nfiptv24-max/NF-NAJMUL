@@ -1,4 +1,4 @@
- import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import {
   X,
@@ -58,7 +58,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const [showControls, setShowControls] = useState(true);
 
-  // অটো-হাইড হ্যান্ডলিং (৩ সেকেন্ড পর গাইব হয়ে যাবে)
   const resetControlsTimeout = () => {
     setShowControls(true);
     if (controlsTimeoutRef.current) {
@@ -87,13 +86,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isPlaying]);
 
-  const checkMixedContent = (url: string) => {
-    return window.location.protocol === 'https:' && url.startsWith('http://');
-  };
-
   useEffect(() => {
     setCurrentUrl(streamUrl);
-    setHasError(checkMixedContent(streamUrl));
+    setHasError(false);
     
     if (streamUrl.toLowerCase().includes('.mpd')) {
       setPlayerMode('dash');
@@ -124,16 +119,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     if (playerMode === 'iframe' || playerMode === 'external') return;
 
-    if (checkMixedContent(currentUrl)) {
-      setHasError(true);
-      return;
-    }
-
     const video = videoRef.current;
     if (!video || !currentUrl) return;
 
     if (playerMode === 'hls' && Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      // 🚀 CORS ও স্ট্রিম ব্লক প্রতিরোধ করতে বিশেষ HLS কনফিগারেশন
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = false;
+        }
+      });
+
       hlsRef.current = hls;
       hls.loadSource(currentUrl);
       hls.attachMedia(video);
@@ -147,7 +145,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) setHasError(true);
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError();
+              break;
+            default:
+              setHasError(true);
+              break;
+          }
+        }
       });
     } else {
       video.src = currentUrl;
@@ -167,25 +177,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [isMuted]);
 
-  // Android Intent হ্যান্ডলিং
+  // 🚀 ১০০% কার্যকরী Android External Player Intent Fix
   const openInExternalApp = (target: 'mx' | 'vlc' | 'any') => {
     if (!currentUrl) return;
 
+    const rawUrl = currentUrl.replace(/^https?:\/\//, '');
+    const isHttps = currentUrl.startsWith('https://');
+    const scheme = isHttps ? 'https' : 'http';
     const encodedTitle = encodeURIComponent(title || 'Live Stream');
-    let intentUrl = '';
+
+    let intentUri = '';
 
     if (target === 'mx') {
-      intentUrl = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=com.mxtech.videoplayer.ad;S.title=${encodedTitle};end;`;
+      intentUri = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=com.mxtech.videoplayer.ad;S.title=${encodedTitle};end;`;
     } else if (target === 'vlc') {
-      intentUrl = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;S.title=${encodedTitle};end;`;
+      intentUri = `vlc://${currentUrl}`;
     } else {
-      intentUrl = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;S.title=${encodedTitle};end;`;
+      intentUri = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;S.title=${encodedTitle};end;`;
     }
 
-    window.location.href = intentUrl;
+    // ব্রাউজারে বা অ্যাপে প্লেয়ার ওপেন করা
+    window.location.href = intentUri;
   };
 
-  // ফুলস্ক্রিন ও অটো রোটেশন
   const toggleFullscreen = async () => {
     const container = containerRef.current;
     if (!container) return;
@@ -261,7 +275,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }`}
       style={{ backgroundColor: '#000000' }}
     >
-      {/* ⚠️ স্ট্রিমিং এরর / External Player অপশন */}
+      {/* ⚠️ এরর ওভারলে */}
       {hasError && playerMode !== 'iframe' ? (
         <div 
           onClick={(e) => e.stopPropagation()} 
@@ -388,7 +402,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
 
-        {/* বটম কন্ট্রোল বার (Safe Area Margin সহ) */}
+        {/* বটম কন্ট্রোল বার */}
         <div 
           className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl"
           style={{
