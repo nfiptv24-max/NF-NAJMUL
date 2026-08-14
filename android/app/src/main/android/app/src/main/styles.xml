@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- মূল থিম যা ম্যানিফেস্টে ব্যবহার করা হয়েছে -->
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.NoActionBar">
+        <!-- অ্যাপের টাইটেল বার সরিয়ে ফেলা -->
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        
+        <!-- ফুলস্ক্রিন করার জন্য -->
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        
+        <!-- এই লাইনটিই সবচেয়ে গুরুত্বপূর্ণ, এটি নচ (Notch) পর্যন্ত ফুলস্ক্রিন করবে -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>
