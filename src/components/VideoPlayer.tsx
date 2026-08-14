@@ -17,10 +17,7 @@ import {
   PlayCircle,
   AlertTriangle,
   Smartphone,
-  Loader2,
-  Download,
-  Share2,
-  Settings
+  Loader2
 } from 'lucide-react';
 import { ServerLink, ZoomMode } from '../types';
 import { PlayerSelectionModal } from './PlayerSelectionModal';
@@ -50,11 +47,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const retryCountRef = useRef(0);
-  const maxRetries = 5;
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true); // Default muted for autoplay
   const [playerMode, setPlayerMode] = useState<PlayerMode>('hls');
   const [hasError, setHasError] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -65,12 +60,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [showControls, setShowControls] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [bufferProgress, setBufferProgress] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [isPiP, setIsPiP] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 3;
 
-  // Auto-hide controls timer
+  // Reset controls timeout
   const resetControlsTimeout = () => {
     setShowControls(true);
     if (controlsTimeoutRef.current) {
@@ -99,12 +92,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [isPlaying]);
 
-  // Detect player mode based on URL
+  // Detect player mode
   useEffect(() => {
     setCurrentUrl(streamUrl);
     setHasError(false);
     setIsLoading(true);
-    retryCountRef.current = 0;
+    setRetryCount(0);
 
     if (streamUrl.toLowerCase().includes('.mpd')) {
       setPlayerMode('dash');
@@ -119,271 +112,213 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Cleanup player
   const cleanupPlayer = () => {
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.removeAttribute('src');
-      videoRef.current.load();
-    }
-  };
-
-  // Check token expiry
-  const checkTokenExpiry = (url: string): boolean => {
     try {
-      const urlObj = new URL(url);
-      const token = urlObj.searchParams.get('v');
-      if (token) {
-        const expiryTime = parseInt(token);
-        const currentTime = Math.floor(Date.now() / 1000);
-        return expiryTime > currentTime;
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
       }
-      return true;
-    } catch {
-      return true;
-    }
-  };
-
-  // Attempt to play with autoplay bypass
-  const attemptPlay = async (video: HTMLVideoElement) => {
-    try {
-      // Try muted first
-      video.muted = true;
-      await video.play();
-      setIsPlaying(true);
-      setIsLoading(false);
-      setHasError(false);
-      
-      // Unmute after successful play (if user interaction exists)
-      setTimeout(() => {
-        if (!isMuted) {
-          video.muted = false;
-          setIsMuted(false);
-        }
-      }, 1000);
-    } catch (error) {
-      console.warn('Autoplay blocked, waiting for user interaction');
-      setIsLoading(false);
-      setHasError(true);
-      setShowControls(true);
-    }
-  };
-
-  // Refresh token
-  const refreshToken = async () => {
-    try {
-      setIsLoading(true);
-      // Try to get new token from the same domain
-      const baseUrl = currentUrl.split('?')[0];
-      const response = await fetch(baseUrl, {
-        method: 'HEAD',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
-      
-      const newUrl = response.url || currentUrl;
-      if (newUrl !== currentUrl) {
-        setCurrentUrl(newUrl);
-        setHasError(false);
-        setIsLoading(false);
-        return true;
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load();
       }
-      return false;
     } catch (error) {
-      console.error('Token refresh failed:', error);
-      return false;
+      console.warn('Cleanup error:', error);
     }
   };
 
-  // HLS Player Setup
+  // 🎯 Main HLS Player Setup - FIXED
   useEffect(() => {
+    // Cleanup previous player
     cleanupPlayer();
-    setHasError(false);
-    setIsLoading(true);
 
-    if (playerMode === 'iframe' || playerMode === 'external') return;
-
-    const video = videoRef.current;
-    if (!video || !currentUrl) return;
-
-    // Check token expiry
-    if (!checkTokenExpiry(currentUrl)) {
-      refreshToken();
+    if (playerMode === 'iframe' || playerMode === 'external') {
+      setIsLoading(false);
       return;
     }
 
+    const video = videoRef.current;
+    if (!video || !currentUrl) {
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setHasError(false);
+
+    // 🚀 HLS Player
     if (playerMode === 'hls' && Hls.isSupported()) {
-      const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 90,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        startFragPrefetch: true,
-        testBandwidth: true,
-        
-        // CORS & Network Config
-        xhrSetup: (xhr, url) => {
-          xhr.withCredentials = false;
-          xhr.setRequestHeader('Origin', window.location.origin);
-          xhr.setRequestHeader('Accept', '*/*');
-          xhr.setRequestHeader('Accept-Encoding', 'gzip, deflate, br');
-          xhr.setRequestHeader('Connection', 'keep-alive');
-          xhr.setRequestHeader('User-Agent', navigator.userAgent);
-        },
-        
-        fetchSetup: (context, init) => {
-          return new Request(context.url, {
-            ...init,
-            mode: 'cors',
-            credentials: 'omit',
-            referrerPolicy: 'no-referrer-when-downgrade',
-            headers: {
-              ...init.headers,
-              'Accept': '*/*',
-              'Accept-Encoding': 'gzip, deflate, br',
-              'Connection': 'keep-alive',
-              'User-Agent': navigator.userAgent
-            }
-          });
-        },
-        
-        // Retry Configuration
-        retryConfig: {
-          maxNumRetry: maxRetries,
-          retryDelayMs: 1000,
-          maxRetryDelayMs: 5000,
-          backoff: 'linear'
-        },
-        
-        // ABR Settings
-        abrController: Hls.DefaultAbrController,
-        abrEwmaDefaultEstimate: 500000,
-        abrBandWidthFactor: 0.95,
-        abrBandWidthUpFactor: 1.0,
-        abrMaxWithRealBitrate: true,
-      });
-
-      hlsRef.current = hls;
-      hls.loadSource(currentUrl);
-      hls.attachMedia(video);
-
-      // HLS Events
-      hls.on(Hls.Events.MANIFEST_LOADING, () => {
-        setIsLoading(true);
-      });
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setIsLoading(false);
-        attemptPlay(video);
-      });
-
-      hls.on(Hls.Events.FRAG_LOADING, () => {
-        setIsLoading(true);
-      });
-
-      hls.on(Hls.Events.FRAG_LOADED, () => {
-        setIsLoading(false);
-      });
-
-      hls.on(Hls.Events.BUFFER_APPENDED, () => {
-        if (videoRef.current) {
-          const buffered = videoRef.current.buffered;
-          if (buffered.length > 0 && videoRef.current.duration) {
-            const progress = (buffered.end(buffered.length - 1) / videoRef.current.duration) * 100;
-            setBufferProgress(Math.min(100, progress));
+      try {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 90,
+          maxBufferLength: 30,
+          startFragPrefetch: true,
+          testBandwidth: true,
+          
+          // CORS Fix
+          xhrSetup: (xhr) => {
+            xhr.withCredentials = false;
+          },
+          
+          fetchSetup: (context, init) => {
+            return new Request(context.url, {
+              ...init,
+              mode: 'cors',
+              credentials: 'omit',
+              referrerPolicy: 'no-referrer'
+            });
+          },
+          
+          // Retry Config
+          retryConfig: {
+            maxNumRetry: maxRetries,
+            retryDelayMs: 2000,
+            maxRetryDelayMs: 8000,
+            backoff: 'linear'
           }
-        }
-      });
+        });
 
-      hls.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
-        console.log('Quality switched to level:', data.level);
-      });
+        hlsRef.current = hls;
+        
+        // Load source
+        hls.loadSource(currentUrl);
+        hls.attachMedia(video);
 
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR:
-              if (retryCountRef.current < maxRetries) {
-                retryCountRef.current++;
-                console.log(`Retry ${retryCountRef.current}/${maxRetries}`);
-                hls.startLoad();
-              } else {
+        // 🎯 Event Handlers
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setIsLoading(false);
+          setIsPlaying(true);
+          
+          // Try to play with muted autoplay
+          video.muted = true;
+          setIsMuted(true);
+          video.play().catch(() => {
+            // User interaction needed
+            setIsPlaying(false);
+          });
+        });
+
+        hls.on(Hls.Events.FRAG_LOADED, () => {
+          setIsLoading(false);
+        });
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                if (retryCount < maxRetries) {
+                  setRetryCount(prev => prev + 1);
+                  hls.startLoad();
+                } else {
+                  setHasError(true);
+                  setIsLoading(false);
+                }
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
                 setHasError(true);
                 setIsLoading(false);
-              }
-              break;
-            case Hls.ErrorTypes.MEDIA_ERROR:
-              hls.recoverMediaError();
-              break;
-            default:
-              setHasError(true);
-              setIsLoading(false);
-              break;
+                break;
+            }
           }
-        }
-      });
+        });
 
-    } else {
-      // Native player fallback
-      video.src = currentUrl;
-      video.addEventListener('loadedmetadata', () => {
-        setIsLoading(false);
-        attemptPlay(video);
-      });
-      video.addEventListener('error', () => {
+        // Cleanup on unmount
+        return () => {
+          cleanupPlayer();
+        };
+
+      } catch (error) {
+        console.error('HLS Setup Error:', error);
         setHasError(true);
         setIsLoading(false);
-      });
+      }
+    } else {
+      // 🎯 Native Player Fallback
+      try {
+        video.src = currentUrl;
+        video.muted = true;
+        setIsMuted(true);
+        
+        video.onloadedmetadata = () => {
+          setIsLoading(false);
+          video.play().catch(() => {
+            setIsPlaying(false);
+          });
+        };
+
+        video.onerror = () => {
+          setHasError(true);
+          setIsLoading(false);
+        };
+
+        return () => {
+          video.onloadedmetadata = null;
+          video.onerror = null;
+        };
+
+      } catch (error) {
+        console.error('Native Player Error:', error);
+        setHasError(true);
+        setIsLoading(false);
+      }
     }
 
-    return () => {
-      cleanupPlayer();
-    };
-  }, [currentUrl, playerMode]);
+  }, [currentUrl, playerMode, retryCount]);
 
-  // Volume control
-  useEffect(() => {
+  // Mute/Unmute handler
+  const toggleMute = () => {
     if (videoRef.current) {
-      videoRef.current.volume = isMuted ? 0 : volume;
-      videoRef.current.muted = isMuted;
+      videoRef.current.muted = !isMuted;
+      setIsMuted(!isMuted);
     }
-  }, [isMuted, volume]);
+  };
 
-  // Playback rate
-  useEffect(() => {
+  // Play/Pause handler
+  const togglePlay = () => {
     if (videoRef.current) {
-      videoRef.current.playbackRate = playbackRate;
+      if (isPlaying) {
+        videoRef.current.pause();
+        setIsPlaying(false);
+      } else {
+        videoRef.current.play()
+          .then(() => {
+            setIsPlaying(true);
+            setHasError(false);
+          })
+          .catch(() => {
+            setHasError(true);
+          });
+      }
     }
-  }, [playbackRate]);
+  };
 
-  // External player launcher
+  // Open in external app
   const openInExternalApp = (target: 'mx' | 'vlc' | 'any') => {
     if (!currentUrl) return;
 
-    const encodedUrl = encodeURIComponent(currentUrl);
-    const encodedTitle = encodeURIComponent(title || 'Live Stream');
     const rawUrl = currentUrl.replace(/^https?:\/\//, '');
+    const isHttps = currentUrl.startsWith('https://');
+    const scheme = isHttps ? 'https' : 'http';
+    const encodedTitle = encodeURIComponent(title || 'Live Stream');
 
     let intentUri = '';
 
     if (target === 'mx') {
-      intentUri = `intent://${rawUrl}#Intent;scheme=https;package=com.mxtech.videoplayer.ad;action=android.intent.action.VIEW;type=video/*;S.title=${encodedTitle};end;`;
+      intentUri = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=com.mxtech.videoplayer.ad;S.title=${encodedTitle};end;`;
     } else if (target === 'vlc') {
-      intentUri = `intent://${rawUrl}#Intent;scheme=https;package=org.videolan.vlc;action=android.intent.action.VIEW;type=video/*;end;`;
+      intentUri = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=org.videolan.vlc;S.title=${encodedTitle};end;`;
     } else {
-      intentUri = `intent://${rawUrl}#Intent;scheme=https;type=video/*;S.title=${encodedTitle};end;`;
+      intentUri = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;S.title=${encodedTitle};end;`;
     }
 
-    // Check if Android
-    if (window.navigator && window.navigator.userAgent.match(/Android/i)) {
+    if (window.navigator.userAgent.match(/Android/i)) {
       window.location.href = intentUri;
     } else {
-      // Desktop fallback
       window.open(currentUrl, '_blank');
     }
   };
@@ -401,10 +336,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           await (container as any).webkitRequestFullscreen();
         }
         setIsFullscreen(true);
-
-        if (window.screen?.orientation && 'lock' in window.screen.orientation) {
-          await (window.screen.orientation as any).lock('landscape').catch(() => {});
-        }
       } catch (err) {
         setIsFullscreen(!isFullscreen);
       }
@@ -416,30 +347,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           await (document as any).webkitExitFullscreen();
         }
         setIsFullscreen(false);
-
-        if (window.screen?.orientation && 'unlock' in window.screen.orientation) {
-          (window.screen.orientation as any).unlock();
-        }
       } catch (err) {
         setIsFullscreen(false);
       }
-    }
-  };
-
-  // Picture-in-Picture
-  const togglePiP = async () => {
-    if (!videoRef.current) return;
-    
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-        setIsPiP(false);
-      } else {
-        await videoRef.current.requestPictureInPicture();
-        setIsPiP(true);
-      }
-    } catch (error) {
-      console.error('PiP error:', error);
     }
   };
 
@@ -448,11 +358,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const handleFullscreenChange = () => {
       const isFull = !!document.fullscreenElement || !!(document as any).webkitFullscreenElement;
       setIsFullscreen(isFull);
-      if (!isFull && window.screen?.orientation && 'unlock' in window.screen.orientation) {
-        try {
-          (window.screen.orientation as any).unlock();
-        } catch (e) {}
-      }
     };
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -482,21 +387,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }`}
       style={{ backgroundColor: '#000000' }}
     >
-      {/* Loading Overlay */}
+      {/* 🎯 Loading Overlay */}
       {isLoading && !hasError && (
         <div className="absolute inset-0 z-30 bg-black/80 flex flex-col items-center justify-center">
           <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
           <p className="text-white text-sm mt-3">Loading stream...</p>
-          <div className="w-48 h-1 bg-slate-700 rounded-full mt-2 overflow-hidden">
-            <div 
-              className="h-full bg-blue-500 rounded-full transition-all duration-300"
-              style={{ width: `${bufferProgress}%` }}
-            />
-          </div>
         </div>
       )}
 
-      {/* Error Overlay */}
+      {/* 🎯 Error Overlay */}
       {hasError && playerMode !== 'iframe' ? (
         <div 
           onClick={(e) => e.stopPropagation()} 
@@ -510,7 +409,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           
           <div className="flex flex-wrap gap-2 justify-center max-w-sm mb-4">
             <button
-              onClick={() => refreshToken()}
+              onClick={() => {
+                setRetryCount(0);
+                setHasError(false);
+                setIsLoading(true);
+                if (hlsRef.current) {
+                  hlsRef.current.loadSource(currentUrl);
+                }
+              }}
               className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 shadow active:scale-95 transition"
             >
               <RefreshCw className="w-4 h-4" /> রিফ্রেশ
@@ -549,32 +455,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onClick={() => setIsModalOpen(true)}
             className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-lg text-sm font-bold flex items-center gap-2 shadow-lg hover:shadow-xl transition"
           >
-            <Settings className="w-4 h-4" /> অ্যাপ সেটিংস
+            <Smartphone className="w-4 h-4" /> অ্যাপ সেটিংস
           </button>
         </div>
       ) : null}
 
-      {/* Video Player */}
+      {/* 🎯 Video Player */}
       {playerMode === 'iframe' ? (
         <iframe
           src={currentUrl}
           className="w-full h-full border-0 absolute inset-0 z-0 bg-black"
           allowFullScreen
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
         />
       ) : (
         <video
           ref={videoRef}
           crossOrigin="anonymous"
           onError={() => {
-            if (retryCountRef.current < maxRetries) {
-              retryCountRef.current++;
-              setTimeout(() => {
-                if (hlsRef.current) {
-                  hlsRef.current.startLoad();
-                }
-              }, 2000);
+            if (retryCount < maxRetries) {
+              setRetryCount(prev => prev + 1);
             } else {
               setHasError(true);
               setIsLoading(false);
@@ -605,11 +505,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           className="w-full h-full absolute inset-0 z-0 bg-black cursor-pointer"
           autoPlay
           playsInline
-          poster={logo}
+          muted={isMuted}
         />
       )}
 
-      {/* Controls Overlay */}
+      {/* 🎯 Controls Overlay */}
       <div
         onClick={(e) => e.stopPropagation()} 
         className={`absolute inset-0 z-20 flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
@@ -638,7 +538,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   setCurrentUrl(srv.url);
                   setHasError(false);
                   setIsLoading(true);
-                  retryCountRef.current = 0;
+                  setRetryCount(0);
+                  cleanupPlayer();
                 }}
                 className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition ${
                   srv.url === currentUrl 
@@ -659,6 +560,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 setPlayerMode(e.target.value as PlayerMode);
                 setHasError(false);
                 setIsLoading(true);
+                setRetryCount(0);
+                cleanupPlayer();
               }}
               className="bg-slate-800 text-white text-xs font-bold px-2.5 py-1.5 rounded-md border border-slate-700 outline-none"
             >
@@ -676,7 +579,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
 
-        {/* Center Controls (Play/Pause) */}
+        {/* Center Controls */}
         <div className="flex items-center justify-center gap-4">
           {onPrevChannel && (
             <button 
@@ -689,17 +592,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           
           {playerMode !== 'iframe' && (
             <button
-              onClick={() => {
-                if (videoRef.current) {
-                  if (isPlaying) {
-                    videoRef.current.pause();
-                  } else {
-                    videoRef.current.play().catch(() => {
-                      setHasError(true);
-                    });
-                  }
-                }
-              }}
+              onClick={togglePlay}
               className="p-4 bg-blue-600 rounded-full text-white shadow-xl hover:bg-blue-500 transition active:scale-95"
             >
               {isPlaying ? <Pause className="w-7 h-7" /> : <Play className="w-7 h-7 ml-0.5" />}
@@ -741,28 +634,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <button 
-                onClick={() => setIsMuted(!isMuted)} 
+                onClick={toggleMute}
                 className="text-white p-1.5 hover:bg-white/10 rounded-full transition"
               >
                 {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
               </button>
-              
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={isMuted ? 0 : volume * 100}
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value) / 100;
-                  setVolume(val);
-                  if (val === 0) {
-                    setIsMuted(true);
-                  } else {
-                    setIsMuted(false);
-                  }
-                }}
-                className="w-20 h-1 bg-white/30 rounded-full cursor-pointer accent-blue-500 hidden sm:block"
-              />
               
               <span className="text-white text-xs font-mono">
                 {Math.floor(currentTime / 60)}:{(Math.floor(currentTime % 60)).toString().padStart(2, '0')} / 
@@ -771,26 +647,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => {
-                  const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
-                  const currentIndex = speeds.indexOf(playbackRate);
-                  const nextIndex = (currentIndex + 1) % speeds.length;
-                  setPlaybackRate(speeds[nextIndex]);
-                }}
-                className="text-white px-2 py-1 text-xs bg-white/10 rounded-md hover:bg-white/20 transition"
-              >
-                {playbackRate}x
-              </button>
-
-              <button
-                onClick={togglePiP}
-                className="text-white p-1.5 hover:bg-white/10 rounded-full transition hidden md:block"
-                title="Picture in Picture"
-              >
-                <ExternalLink className="w-4 h-4" />
-              </button>
-
               <button
                 onClick={() => {
                   const modes: ZoomMode[] = ['contain', 'cover', 'fill'];
@@ -819,7 +675,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onClose={() => setIsModalOpen(false)}
         videoUrl={currentUrl}
         videoTitle={title}
-        onRefresh={refreshToken}
       />
     </div>
   );
