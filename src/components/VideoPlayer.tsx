@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+ import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import {
   X,
@@ -58,6 +58,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const [showControls, setShowControls] = useState(true);
 
+  // অটো-হাইড হ্যান্ডলিং (৩ সেকেন্ড পর গাইব হয়ে যাবে)
   const resetControlsTimeout = () => {
     setShowControls(true);
     if (controlsTimeoutRef.current) {
@@ -166,7 +167,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [isMuted]);
 
-  // 🚀 ১০০% কার্যকরী Android Intent হ্যান্ডলিং (MX Player, VLC এবং System Chooser)
+  // Android Intent হ্যান্ডলিং
   const openInExternalApp = (target: 'mx' | 'vlc' | 'any') => {
     if (!currentUrl) return;
 
@@ -181,11 +182,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       intentUrl = `intent:${currentUrl}#Intent;action=android.intent.action.VIEW;type=video/*;S.title=${encodedTitle};end;`;
     }
 
-    // Android WebView-এ নিশ্চিতভাবে Intent ট্রিগার করার নিয়ম
     window.location.href = intentUrl;
   };
 
-  // 📱 ফুলস্ক্রিন ও অটো রোটেশন ফিক্স (সাদা মার্জিন দূর করা)
+  // ফুলস্ক্রিন ও অটো রোটেশন
   const toggleFullscreen = async () => {
     const container = containerRef.current;
     if (!container) return;
@@ -199,7 +199,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
         setIsFullscreen(true);
 
-        // অটো রোটেশন
         if (window.screen?.orientation && 'lock' in window.screen.orientation) {
           await (window.screen.orientation as any).lock('landscape').catch(() => {});
         }
@@ -247,6 +246,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     <div
       ref={containerRef}
       onMouseMove={() => {
+        if (!showControls) setShowControls(true);
+        resetControlsTimeout();
+      }}
+      onTouchStart={() => {
         if (!showControls) setShowControls(true);
         resetControlsTimeout();
       }}
@@ -337,6 +340,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         className={`absolute inset-0 z-20 flex flex-col justify-between p-3 bg-gradient-to-b from-black/80 via-transparent to-black/90 transition-opacity duration-300 ${
           showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
+        style={{
+          paddingTop: 'calc(12px + env(safe-area-inset-top))',
+          paddingLeft: 'calc(12px + env(safe-area-inset-left))',
+          paddingRight: 'calc(12px + env(safe-area-inset-right))',
+        }}
       >
         {/* টপ বার */}
         <div className="flex items-center justify-between gap-2">
@@ -380,8 +388,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
 
-        {/* বটম কন্ট্রোল বার */}
-        <div className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl">
+        {/* বটম কন্ট্রোল বার (Safe Area Margin সহ) */}
+        <div 
+          className="flex flex-col gap-2 bg-black/80 backdrop-blur-md p-2.5 rounded-xl"
+          style={{
+            marginBottom: 'calc(4px + env(safe-area-inset-bottom))'
+          }}
+        >
           {duration > 0 && playerMode !== 'iframe' && (
             <input
               type="range"
