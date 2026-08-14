@@ -1,4 +1,4 @@
-Name: Build Android APK
+name: Build Android APK
 
 on:
   push:
@@ -38,35 +38,28 @@ jobs:
         npx cap add android
         npx cap sync android
 
-    - name: Inject Immersive Fullscreen (Hide Status & Nav Bar)
+    - name: Inject Immersive Fullscreen Code
       run: |
-        node -e '
-          const fs = require("fs");
-          const path = "android/app/src/main/java/com/nafitv24/app/MainActivity.java";
-          if (fs.existsSync(path)) {
-            let code = `package com.nafitv24.app;
-
-import android.os.Bundle;
-import android.view.View;
-import com.getcapacitor.BridgeActivity;
-
-public class MainActivity extends BridgeActivity {
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            | View.SYSTEM_UI_FLAG_FULLSCREEN
-            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-        );
-    }
-}`;
-            fs.writeFileSync(path, code);
-          }
-        '
+        MAIN_ACT="android/app/src/main/java/com/nafitv24/app/MainActivity.java"
+        mkdir -p android/app/src/main/java/com/nafitv24/app
+        echo "package com.nafitv24.app;" > $MAIN_ACT
+        echo "import android.os.Bundle;" >> $MAIN_ACT
+        echo "import android.view.View;" >> $MAIN_ACT
+        echo "import com.getcapacitor.BridgeActivity;" >> $MAIN_ACT
+        echo "public class MainActivity extends BridgeActivity {" >> $MAIN_ACT
+        echo "    @Override" >> $MAIN_ACT
+        echo "    public void onCreate(Bundle savedInstanceState) {" >> $MAIN_ACT
+        echo "        super.onCreate(savedInstanceState);" >> $MAIN_ACT
+        echo "        getWindow().getDecorView().setSystemUiVisibility(" >> $MAIN_ACT
+        echo "            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY" >> $MAIN_ACT
+        echo "            | View.SYSTEM_UI_FLAG_FULLSCREEN" >> $MAIN_ACT
+        echo "            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION" >> $MAIN_ACT
+        echo "            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE" >> $MAIN_ACT
+        echo "            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION" >> $MAIN_ACT
+        echo "            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN" >> $MAIN_ACT
+        echo "        );" >> $MAIN_ACT
+        echo "    }" >> $MAIN_ACT
+        echo "}" >> $MAIN_ACT
 
     - name: Force Java 21, SDK 36, MinSDK 24 & Fix Duplicate Classes
       run: |
@@ -77,7 +70,6 @@ public class MainActivity extends BridgeActivity {
         node -e '
           const fs = require("fs");
           
-          // 1. variables.gradle-এ minSdkVersion 24 এবং compile/target 36 সেট করা
           const varsGradle = "android/variables.gradle";
           if (fs.existsSync(varsGradle)) {
             let content = fs.readFileSync(varsGradle, "utf8");
@@ -87,7 +79,6 @@ public class MainActivity extends BridgeActivity {
             fs.writeFileSync(varsGradle, content);
           }
 
-          // 2. capacitor-android build.gradle-এ Java 21 এবং SDK 36/24 সেট করা
           const capGradle = "node_modules/@capacitor/android/capacitor/build.gradle";
           if (fs.existsSync(capGradle)) {
             let content = fs.readFileSync(capGradle, "utf8");
@@ -98,7 +89,6 @@ public class MainActivity extends BridgeActivity {
             fs.writeFileSync(capGradle, content);
           }
 
-          // 3. App level build.gradle-এ Java 21 ও minSdkVersion 24 সেট করা
           const appGradle = "android/app/build.gradle";
           if (fs.existsSync(appGradle)) {
             let content = fs.readFileSync(appGradle, "utf8");
