@@ -18,45 +18,26 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [detectedPlayers, setDetectedPlayers] = useState<string[]>([]);
+  const [isAndroid, setIsAndroid] = useState(false);
 
-  // Detect installed players on Android
   useEffect(() => {
-    const detectPlayers = () => {
-      const isAndroid = navigator.userAgent.includes('Android');
-      if (!isAndroid) return [];
-
-      const detected: string[] = [];
-      
-      // Check by user agent
-      const ua = navigator.userAgent;
-      if (ua.includes('MX Player') || ua.includes('com.mxtech')) {
-        detected.push('MX Player');
-      }
-      if (ua.includes('VLC') || ua.includes('org.videolan')) {
-        detected.push('VLC');
-      }
-
-      return detected;
-    };
-
-    setDetectedPlayers(detectPlayers());
+    setIsAndroid(navigator.userAgent.includes('Android'));
   }, []);
 
   if (!isOpen) return null;
 
-  // 🎯 Enhanced Intent with proper error handling
-  const playInExternalApp = (videoUrl: string, packageName: string, playerName: string) => {
+  // 🎯 FIXED: Proper Intent for Android with Activity
+  const playInExternalApp = (videoUrl: string, packageName: string, activityName?: string) => {
     if (!videoUrl) {
       console.error('❌ No video URL');
       return;
     }
 
-    console.log(`🎯 Opening in ${playerName}:`, videoUrl);
-    console.log(`📦 Package: ${packageName}`);
+    console.log('🎯 Opening URL:', videoUrl);
+    console.log('📦 Package:', packageName);
+    console.log('🎯 Activity:', activityName || 'default');
 
-    const isAndroid = navigator.userAgent.includes('Android');
-    
+    // Check if Android
     if (!isAndroid) {
       console.log('💻 Not Android, opening in browser');
       window.open(videoUrl, '_blank');
@@ -64,77 +45,114 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
       return;
     }
 
-    // Clean URL
+    // Clean URL - remove protocol
     const rawUrl = videoUrl.replace(/^https?:\/\//, '');
     const isHttps = videoUrl.startsWith('https://');
     const scheme = isHttps ? 'https' : 'http';
     const encodedTitle = encodeURIComponent(videoTitle || 'Video Stream');
 
-    // Multiple intent formats for better compatibility
-    const intents = [
-      // Primary intent
-      `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=${packageName};S.title=${encodedTitle};S.infos=Video;end;`,
-      // Alternative with mp4 type
-      `intent://${rawUrl}#Intent;scheme=${scheme};type=video/mp4;package=${packageName};end;`,
-      // Without package (let system decide)
-      `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;S.title=${encodedTitle};end;`
-    ];
+    // Build proper Intent
+    let intentUrl = '';
 
-    console.log('📱 Trying intents...');
+    if (packageName === 'com.mxtech.videoplayer.ad') {
+      // 🎯 MX Player specific - with proper activity
+      intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};package=${packageName};action=android.intent.action.VIEW;type=video/*;component=${packageName}/com.mxtech.videoplayer.ad.ActivityWelcomeMX;S.title=${encodedTitle};end;`;
+    } else if (packageName === 'org.videolan.vlc') {
+      // 🎯 VLC specific
+      intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};package=${packageName};action=android.intent.action.VIEW;type=video/*;S.title=${encodedTitle};end;`;
+    } else {
+      // 🎯 Generic intent
+      intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};package=${packageName};action=android.intent.action.VIEW;type=video/*;S.title=${encodedTitle};end;`;
+    }
 
-    let intentIndex = 0;
-    let intentTimeout: NodeJS.Timeout;
-    let success = false;
+    console.log('📱 Intent URL:', intentUrl);
 
-    const tryNextIntent = () => {
-      if (success || intentIndex >= intents.length) {
-        // All intents failed, fallback to browser
-        console.log('⚠️ All intents failed, opening in browser');
-        window.open(videoUrl, '_blank');
-        return;
-      }
-
-      const currentIntent = intents[intentIndex];
-      console.log(`📱 Intent ${intentIndex + 1}:`, currentIntent);
+    try {
+      // 🎯 Method 1: Direct intent (works on most devices)
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = intentUrl;
+      document.body.appendChild(iframe);
       
-      try {
-        // Try to open intent
-        window.location.href = currentIntent;
-        intentIndex++;
-        
+      // Remove iframe after attempt
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 3000);
+
+      // 🎯 Method 2: Fallback with window.location (if iframe doesn't work)
+      setTimeout(() => {
         // Check if page is still visible (intent failed)
-        intentTimeout = setTimeout(() => {
-          if (!document.hidden && !success) {
-            console.log(`⏳ Intent ${intentIndex} timed out, trying next...`);
-            tryNextIntent();
+        if (!document.hidden) {
+          console.log('⚠️ Iframe method failed, trying window.location');
+          
+          // Try with different intent format
+          const fallbackIntent = `intent://${rawUrl}#Intent;scheme=${scheme};package=${packageName};action=android.intent.action.VIEW;type=video/*;end;`;
+          window.location.href = fallbackIntent;
+        }
+      }, 1500);
+
+      // 🎯 Method 3: Open with explicit component (for MX Player)
+      if (packageName === 'com.mxtech.videoplayer.ad') {
+        setTimeout(() => {
+          if (!document.hidden) {
+            console.log('⚠️ Trying MX Player with explicit component');
+            const mxIntent = `intent://${rawUrl}#Intent;scheme=${scheme};package=${packageName};component=${packageName}/com.mxtech.videoplayer.ad.ActivityWelcomeMX;action=android.intent.action.VIEW;type=video/*;end;`;
+            window.location.href = mxIntent;
           }
-        }, 1500);
-
-      } catch (error) {
-        console.error(`❌ Intent ${intentIndex + 1} error:`, error);
-        tryNextIntent();
+        }, 2500);
       }
-    };
 
-    // Start with first intent
-    tryNextIntent();
-
-    // Cleanup timeout on unmount
-    setTimeout(() => {
-      if (intentTimeout) clearTimeout(intentTimeout);
-    }, 5000);
+    } catch (error) {
+      console.error('❌ Error opening intent:', error);
+      
+      // 🎯 Final fallback: Try to open with market:// to install app
+      if (packageName) {
+        const marketUrl = `market://details?id=${packageName}`;
+        window.location.href = marketUrl;
+      }
+    }
 
     onClose();
   };
 
-  // 🌐 Enhanced Web Player with HLS support
+  // 🎯 Alternative method using a hidden anchor tag
+  const playWithAnchor = (videoUrl: string, packageName: string) => {
+    if (!isAndroid) {
+      window.open(videoUrl, '_blank');
+      onClose();
+      return;
+    }
+
+    const rawUrl = videoUrl.replace(/^https?:\/\//, '');
+    const isHttps = videoUrl.startsWith('https://');
+    const scheme = isHttps ? 'https' : 'http';
+    const encodedTitle = encodeURIComponent(videoTitle || 'Video Stream');
+
+    let intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};package=${packageName};action=android.intent.action.VIEW;type=video/*;S.title=${encodedTitle};end;`;
+
+    // Create hidden anchor
+    const anchor = document.createElement('a');
+    anchor.href = intentUrl;
+    anchor.target = '_blank';
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    
+    // Cleanup
+    setTimeout(() => {
+      document.body.removeChild(anchor);
+    }, 1000);
+
+    onClose();
+  };
+
+  // 🌐 Web Player
   const handleWebPlayer = () => {
     const isHLS = videoUrl.includes('.m3u8');
     
     let html = '';
     
     if (isHLS) {
-      // HLS player with hls.js
       html = `
         <!DOCTYPE html>
         <html>
@@ -185,7 +203,6 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
         </html>
       `;
     } else {
-      // Standard video player
       html = `
         <!DOCTYPE html>
         <html>
@@ -210,17 +227,12 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
     
     const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const newWindow = window.open(url, '_blank');
-    
-    // Cleanup
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-    }, 60000);
-    
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
     onClose();
   };
 
-  // 📋 Copy URL with better feedback
+  // 📋 Copy URL
   const handleCopyUrl = async () => {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -228,7 +240,6 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
         setCopied(true);
         setTimeout(() => setCopied(false), 3000);
       } else {
-        // Fallback
         const textArea = document.createElement('textarea');
         textArea.value = videoUrl;
         document.body.appendChild(textArea);
@@ -244,7 +255,7 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
     }
   };
 
-  // 📱 Share URL
+  // 📱 Share
   const handleShare = async () => {
     try {
       if (navigator.share) {
@@ -261,17 +272,14 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
     }
   };
 
-  // 📥 Download video (HLS to MP4 conversion)
+  // 📥 Download
   const handleDownload = async () => {
     setIsLoading(true);
     try {
-      // For HLS streams, we need to use a service or FFmpeg
-      // For now, we'll try to open the stream in a new window
       if (videoUrl.includes('.m3u8')) {
         alert('📥 HLS streams require special conversion. Use a downloader app or try the web player.');
         window.open(videoUrl, '_blank');
       } else {
-        // Direct download for MP4
         const link = document.createElement('a');
         link.href = videoUrl;
         link.download = `${videoTitle || 'video'}.mp4`;
@@ -288,55 +296,6 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
     onClose();
   };
 
-  // Player list with enhanced options
-  const players = [
-    {
-      id: 'web',
-      name: 'Web Player',
-      icon: Globe,
-      color: 'text-blue-400',
-      bg: 'hover:border-blue-500',
-      description: '🌐 Browser (HLS Supported)',
-      action: handleWebPlayer
-    },
-    {
-      id: 'mx',
-      name: 'MX Player',
-      icon: Play,
-      color: 'text-orange-400',
-      bg: 'hover:border-orange-500',
-      description: '🎬 Best Video Player',
-      action: () => playInExternalApp(videoUrl, 'com.mxtech.videoplayer.ad', 'MX Player')
-    },
-    {
-      id: 'vlc',
-      name: 'VLC Player',
-      icon: ExternalLink,
-      color: 'text-orange-500',
-      bg: 'hover:border-orange-600',
-      description: '📺 Open Source Media Player',
-      action: () => playInExternalApp(videoUrl, 'org.videolan.vlc', 'VLC')
-    },
-    {
-      id: 'network',
-      name: 'Network Player',
-      icon: Server,
-      color: 'text-blue-400',
-      bg: 'hover:border-blue-500',
-      description: '📡 Genuine Leone',
-      action: () => playInExternalApp(videoUrl, 'com.genuine.leone', 'Network Player')
-    },
-    {
-      id: 'any',
-      name: 'Any Player',
-      icon: Smartphone,
-      color: 'text-purple-400',
-      bg: 'hover:border-purple-500',
-      description: '📱 Default Video Player',
-      action: () => playInExternalApp(videoUrl, '', 'Default')
-    }
-  ];
-
   return (
     <div 
       className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn"
@@ -347,7 +306,6 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         
-        {/* Close button */}
         <button 
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-400 hover:text-white p-1.5 rounded-full bg-gray-800/50 hover:bg-gray-700 transition"
@@ -366,20 +324,16 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
           <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
             <span>🎬</span> পছন্দের প্লেয়ার নির্বাচন করুন
           </p>
-          
-          {/* Detected players badge */}
-          {detectedPlayers.length > 0 && (
+          {isAndroid && (
             <div className="mt-2 flex gap-1">
-              {detectedPlayers.map((player) => (
-                <span key={player} className="bg-green-500/20 text-green-400 text-[10px] px-2 py-0.5 rounded-full border border-green-500/30">
-                  ✅ {player} ইনস্টল আছে
-                </span>
-              ))}
+              <span className="bg-green-500/20 text-green-400 text-[10px] px-2 py-0.5 rounded-full border border-green-500/30">
+                ✅ Android ডিভাইস সনাক্ত হয়েছে
+              </span>
             </div>
           )}
         </div>
 
-        {/* Stream URL with status */}
+        {/* Stream URL */}
         <div className="mb-4 bg-gray-900/50 rounded-xl p-3 border border-gray-800">
           <div className="flex items-center justify-between mb-1">
             <p className="text-[10px] text-gray-500">📡 স্ট্রিম URL</p>
@@ -442,30 +396,89 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
           )}
         </div>
 
-        {/* Player Options */}
+        {/* 🎯 Player Options - FIXED with proper package names */}
         <div className="space-y-2.5">
-          {players.map((player) => (
-            <button 
-              key={player.id}
-              onClick={player.action}
-              className={`w-full flex items-center justify-between p-3.5 bg-gray-900/60 border border-gray-800 ${player.bg} rounded-xl transition-all hover:scale-[1.02] active:scale-95 group`}
-            >
-              <div className="flex items-center gap-3">
-                <player.icon className={`w-5 h-5 ${player.color}`} />
-                <span className="text-sm font-semibold">{player.name}</span>
-              </div>
-              <span className="text-xs text-gray-500">{player.description}</span>
-            </button>
-          ))}
+          
+          {/* Web Player */}
+          <button 
+            onClick={handleWebPlayer}
+            className="w-full flex items-center justify-between p-3.5 bg-gray-900/60 border border-gray-800 hover:border-blue-500 rounded-xl transition-all hover:scale-[1.02] active:scale-95 group"
+          >
+            <div className="flex items-center gap-3">
+              <Globe className="w-5 h-5 text-blue-400" />
+              <span className="text-sm font-semibold">Web Player</span>
+            </div>
+            <span className="text-xs text-gray-500">🌐 Browser (HLS)</span>
+          </button>
+
+          {/* 🎯 MX Player - FIXED with proper activity */}
+          <button 
+            onClick={() => {
+              playInExternalApp(videoUrl, 'com.mxtech.videoplayer.ad', 'com.mxtech.videoplayer.ad.ActivityWelcomeMX');
+              onClose();
+            }}
+            className="w-full flex items-center justify-between p-3.5 bg-gray-900/60 border border-gray-800 hover:border-orange-500 rounded-xl transition-all hover:scale-[1.02] active:scale-95 group"
+          >
+            <div className="flex items-center gap-3">
+              <span className="bg-orange-500 text-black text-xs font-black px-2 py-1 rounded">MX</span>
+              <span className="text-sm font-semibold">MX Player</span>
+            </div>
+            <span className="text-xs text-gray-500">🎬 Video Player</span>
+          </button>
+
+          {/* 🎯 VLC Player */}
+          <button 
+            onClick={() => {
+              playInExternalApp(videoUrl, 'org.videolan.vlc');
+              onClose();
+            }}
+            className="w-full flex items-center justify-between p-3.5 bg-gray-900/60 border border-gray-800 hover:border-orange-600 rounded-xl transition-all hover:scale-[1.02] active:scale-95 group"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-lg">🎬</span>
+              <span className="text-sm font-semibold">VLC Player</span>
+            </div>
+            <span className="text-xs text-gray-500">📺 Media Player</span>
+          </button>
+
+          {/* 🎯 Network Player */}
+          <button 
+            onClick={() => {
+              playInExternalApp(videoUrl, 'com.genuine.leone');
+              onClose();
+            }}
+            className="w-full flex items-center justify-between p-3.5 bg-gray-900/60 border border-gray-800 hover:border-blue-500 rounded-xl transition-all hover:scale-[1.02] active:scale-95 group"
+          >
+            <div className="flex items-center gap-3">
+              <Server className="w-5 h-5 text-blue-400" />
+              <span className="text-sm font-semibold">Network Player</span>
+            </div>
+            <span className="text-xs text-gray-500">📡 Genuine Leone</span>
+          </button>
+
+          {/* 🎯 Any Player (Default) */}
+          <button 
+            onClick={() => {
+              playInExternalApp(videoUrl, '');
+              onClose();
+            }}
+            className="w-full flex items-center justify-between p-3.5 bg-gray-900/60 border border-gray-800 hover:border-purple-500 rounded-xl transition-all hover:scale-[1.02] active:scale-95 group"
+          >
+            <div className="flex items-center gap-3">
+              <Smartphone className="w-5 h-5 text-purple-400" />
+              <span className="text-sm font-semibold">Any Player</span>
+            </div>
+            <span className="text-xs text-gray-500">📱 Default</span>
+          </button>
+
         </div>
 
-        {/* Footer */}
-        <div className="mt-4 flex items-center justify-between text-[10px] text-gray-500 border-t border-gray-800 pt-3">
-          <span>💡 অ্যাপ ইনস্টল থাকলে সরাসরি খুলবে</span>
-          <span className="flex items-center gap-1">
+        {/* 🎯 Debug Info */}
+        <div className="mt-4 p-2 bg-gray-900/30 rounded-lg border border-gray-800">
+          <p className="text-[10px] text-gray-500 flex items-center gap-1">
             <AlertCircle className="w-3 h-3" />
-            v2.1
-          </span>
+            ℹ️ অ্যাপ ইনস্টল থাকলে সরাসরি খুলবে। না থাকলে Play Store এ নিয়ে যাবে।
+          </p>
         </div>
 
       </div>
