@@ -14,12 +14,21 @@
     --success: #2ecc71;
   }
 
+  /* ফুলস্ক্রিন ফিক্স: রুট লেভেলে মার্জিন ও প্যাডিং জিরো করা হয়েছে */
+  html, body, #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #000000 !important;
+  }
+
   body {
     background-color: var(--bg-main);
     color: var(--text-main);
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     min-height: 100vh;
-    overflow-x: hidden;
+    overflow: hidden; /* অ্যাপের বাইরে যেন স্ক্রল না হয় */
     -webkit-tap-highlight-color: transparent;
   }
 }
