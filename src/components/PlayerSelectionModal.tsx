@@ -16,70 +16,73 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  // 🔧 Improved external app player function
-  const playInExternalApp = (videoUrl: string, packageName?: string) => {
+  // 🎯 Proper Intent with Activity and Flags
+  const playInExternalApp = (videoUrl: string, packageName: string, activityName?: string) => {
     if (!videoUrl) {
       console.error('❌ No video URL');
       return;
     }
 
     console.log('🎯 Opening URL:', videoUrl);
-    console.log('📦 Package:', packageName || 'Any');
+    console.log('📦 Package:', packageName);
+    console.log('🎯 Activity:', activityName || 'Default');
 
     const rawUrl = videoUrl.replace(/^https?:\/\//, '');
     const isHttps = videoUrl.startsWith('https://');
     const scheme = isHttps ? 'https' : 'http';
     const encodedTitle = encodeURIComponent(videoTitle);
 
+    // Build Intent with Component (Activity)
     let intentUrl = '';
-
-    // If packageName is provided, use specific app
-    if (packageName) {
-      intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=${packageName};S.title=${encodedTitle};end;`;
+    
+    if (activityName) {
+      // Specific Activity
+      intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=${packageName};component=${packageName}/${activityName};S.title=${encodedTitle};end;`;
     } else {
-      // Let Android choose any player
-      intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;S.title=${encodedTitle};end;`;
+      // Default Activity
+      intentUrl = `intent://${rawUrl}#Intent;scheme=${scheme};type=video/*;package=${packageName};S.title=${encodedTitle};end;`;
     }
 
-    // Check if Android
     const isAndroid = navigator.userAgent.includes('Android');
     
     if (isAndroid) {
-      console.log('📱 Android detected, opening intent:', intentUrl);
-      window.location.href = intentUrl;
+      console.log('📱 Opening intent:', intentUrl);
       
-      // Fallback after 2 seconds
-      setTimeout(() => {
-        if (!document.hidden) {
-          console.log('🔄 Fallback: opening directly');
-          window.open(videoUrl, '_blank');
-        }
-      }, 2000);
+      // Try multiple methods to open
+      try {
+        // Method 1: Direct intent
+        window.location.href = intentUrl;
+        
+        // Method 2: Fallback with iframe (for some browsers)
+        setTimeout(() => {
+          if (!document.hidden) {
+            console.log('🔄 Fallback 1: Trying alternative method');
+            // Try with market://
+            const marketUrl = `market://details?id=${packageName}`;
+            window.location.href = marketUrl;
+          }
+        }, 1500);
+
+        // Method 3: Final fallback - open directly
+        setTimeout(() => {
+          if (!document.hidden) {
+            console.log('🔄 Fallback 2: Opening directly');
+            window.open(videoUrl, '_blank');
+          }
+        }, 3000);
+        
+      } catch (error) {
+        console.error('❌ Error opening app:', error);
+        window.open(videoUrl, '_blank');
+      }
     } else {
-      // Desktop/Other: Open in new tab
-      console.log('💻 Non-Android, opening in browser');
+      // Desktop: Open in new tab
       window.open(videoUrl, '_blank');
     }
   };
 
-  // 📋 Handle network stream (copy to clipboard)
-  const handleNetworkStream = () => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(videoUrl)
-        .then(() => {
-          alert('✅ Stream URL copied to clipboard!');
-        })
-        .catch(() => {
-          prompt('📋 Copy this URL:', videoUrl);
-        });
-    } else {
-      prompt('📋 Copy this URL:', videoUrl);
-    }
-  };
-
-  // 🌐 Handle web player
+  // 🌐 Web Player
   const handleWebPlayer = () => {
-    // Create HTML5 video player in new tab
     const html = `
       <!DOCTYPE html>
       <html>
@@ -107,13 +110,52 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
+  // 📋 Network Stream
+  const handleNetworkStream = () => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(videoUrl)
+        .then(() => alert('✅ Stream URL copied to clipboard!'))
+        .catch(() => prompt('📋 Copy this URL:', videoUrl));
+    } else {
+      prompt('📋 Copy this URL:', videoUrl);
+    }
+  };
+
+  // 🎯 Player Configurations with proper Activities
+  const players = [
+    {
+      id: 'mx',
+      label: 'MX Player',
+      icon: 'MX',
+      color: 'bg-orange-500',
+      package: 'com.mxtech.videoplayer.ad',
+      activity: 'com.mxtech.videoplayer.ad.ActivityWelcomeMX'
+    },
+    {
+      id: 'vlc',
+      label: 'VLC Player',
+      icon: '🎬',
+      color: 'bg-orange-600',
+      package: 'org.videolan.vlc',
+      activity: 'org.videolan.vlc.StartActivity'
+    },
+    {
+      id: 'network',
+      label: 'Network Player',
+      icon: '📡',
+      color: 'bg-blue-600',
+      package: 'com.genuine.leone',
+      activity: 'com.genuine.leone.ui.splash.SplashActivity'
+    }
+  ];
+
   return (
     <div 
       className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div 
-        className="relative w-full max-w-md bg-[#121318] border border-gray-800 rounded-2xl p-6 text-white shadow-2xl"
+        className="relative w-full max-w-md bg-[#121318] border border-gray-800 rounded-2xl p-6 text-white shadow-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         
@@ -131,7 +173,7 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
             <Play className="w-6 h-6 fill-current" />
           </div>
           <h2 className="text-xl font-bold">{videoTitle}</h2>
-          <p className="text-xs text-gray-400 mt-1">🎬 সার্ভার এবং ভিডিও প্লেয়ার নির্বাচন করুন</p>
+          <p className="text-xs text-gray-400 mt-1">🎬 পছন্দের প্লেয়ার নির্বাচন করুন</p>
         </div>
 
         {/* Stream URL */}
@@ -140,85 +182,90 @@ export const PlayerSelectionModal: React.FC<PlayerSelectionModalProps> = ({
           <p className="text-xs text-gray-300 truncate font-mono">{videoUrl}</p>
         </div>
 
-        {/* Stream Server Selection */}
-        <div className="mb-6">
-          <label className="text-xs text-gray-400 mb-2 block font-medium">📡 স্ট্রিম সার্ভার:</label>
-          <div className="flex items-center justify-between bg-red-950/30 border border-red-600/50 rounded-xl p-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-red-400">
-              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-              Primary Stream Server
+        {/* Player Options */}
+        <div className="space-y-3">
+          
+          {/* Web Player */}
+          <button 
+            onClick={() => {
+              handleWebPlayer();
+              onClose();
+            }}
+            className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-red-500 rounded-xl transition group"
+          >
+            <div className="flex items-center gap-3">
+              <Globe className="w-5 h-5 text-red-500" />
+              <span className="text-sm font-semibold">Web Player</span>
             </div>
-            <span className="text-xs text-red-500 bg-red-500/10 px-2 py-1 rounded-md font-medium">Active</span>
-          </div>
-        </div>
+            <span className="text-xs text-gray-500">🌐 Browser</span>
+          </button>
 
-        {/* Player Options Grid */}
-        <div>
-          <label className="text-xs text-gray-400 mb-2 block font-medium">🎮 প্লেয়ার সিলেক্ট করুন:</label>
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            
-            {/* Web Player */}
-            <button 
-              onClick={() => {
-                handleWebPlayer();
-                onClose();
-              }}
-              className="flex flex-col items-center justify-center p-4 bg-gray-900/60 border border-gray-800 hover:border-red-500 rounded-xl transition group"
-            >
-              <Globe className="w-6 h-6 text-red-500 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-semibold">Web Player</span>
-            </button>
+          {/* MX Player */}
+          <button 
+            onClick={() => {
+              playInExternalApp(videoUrl, 'com.mxtech.videoplayer.ad', 'com.mxtech.videoplayer.ad.ActivityWelcomeMX');
+              onClose();
+            }}
+            className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-orange-500 rounded-xl transition group"
+          >
+            <div className="flex items-center gap-3">
+              <span className="bg-orange-500 text-black text-xs font-black px-2 py-1 rounded">MX</span>
+              <span className="text-sm font-semibold">MX Player</span>
+            </div>
+            <span className="text-xs text-gray-500">🎬 Video Player</span>
+          </button>
 
-            {/* MX Player */}
-            <button 
-              onClick={() => {
-                playInExternalApp(videoUrl, 'com.mxtech.videoplayer.ad');
-                onClose();
-              }}
-              className="flex flex-col items-center justify-center p-4 bg-gray-900/60 border border-gray-800 hover:border-red-500 rounded-xl transition group"
-            >
-              <span className="bg-orange-500 text-black text-[10px] font-black px-1.5 py-0.5 rounded mb-1 group-hover:scale-110 transition-transform">MX</span>
-              <span className="text-xs font-semibold">MX Player</span>
-            </button>
+          {/* VLC Player */}
+          <button 
+            onClick={() => {
+              playInExternalApp(videoUrl, 'org.videolan.vlc', 'org.videolan.vlc.StartActivity');
+              onClose();
+            }}
+            className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-orange-600 rounded-xl transition group"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-lg">🎬</span>
+              <span className="text-sm font-semibold">VLC Player</span>
+            </div>
+            <span className="text-xs text-gray-500">📺 Media Player</span>
+          </button>
 
-            {/* VLC Player */}
-            <button 
-              onClick={() => {
-                playInExternalApp(videoUrl, 'org.videolan.vlc');
-                onClose();
-              }}
-              className="flex flex-col items-center justify-center p-4 bg-gray-900/60 border border-gray-800 hover:border-red-500 rounded-xl transition group"
-            >
-              <ExternalLink className="w-6 h-6 text-orange-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-semibold">VLC Player</span>
-            </button>
+          {/* Network Player (Genuine Leone) */}
+          <button 
+            onClick={() => {
+              playInExternalApp(videoUrl, 'com.genuine.leone', 'com.genuine.leone.ui.splash.SplashActivity');
+              onClose();
+            }}
+            className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-blue-500 rounded-xl transition group"
+          >
+            <div className="flex items-center gap-3">
+              <Server className="w-5 h-5 text-blue-400" />
+              <span className="text-sm font-semibold">Network Player</span>
+            </div>
+            <span className="text-xs text-gray-500">📡 Genuine Leone</span>
+          </button>
 
-            {/* XPlayer */}
-            <button 
-              onClick={() => {
-                playInExternalApp(videoUrl, 'mobi.inshot.videoplayer.allformat');
-                onClose();
-              }}
-              className="flex flex-col items-center justify-center p-4 bg-gray-900/60 border border-gray-800 hover:border-red-500 rounded-xl transition group"
-            >
-              <Smartphone className="w-6 h-6 text-purple-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-semibold">XPlayer</span>
-            </button>
-
-          </div>
-
-          {/* Network Stream Option */}
+          {/* Network Stream - Copy URL */}
           <button 
             onClick={() => {
               handleNetworkStream();
               onClose();
             }}
-            className="w-full flex items-center justify-center gap-2 p-3 bg-gray-900/60 border border-gray-800 hover:border-blue-500 rounded-xl transition text-xs font-semibold text-gray-300"
+            className="w-full flex items-center justify-between p-4 bg-gray-900/60 border border-gray-800 hover:border-green-500 rounded-xl transition group"
           >
-            <Server className="w-4 h-4 text-blue-400" />
-            📋 Network Stream (Copy URL)
+            <div className="flex items-center gap-3">
+              <span className="text-lg">📋</span>
+              <span className="text-sm font-semibold">Copy Stream URL</span>
+            </div>
+            <span className="text-xs text-gray-500">📄 Clipboard</span>
           </button>
+
         </div>
+
+        {/* Note */}
+        <p className="text-center text-[10px] text-gray-500 mt-4">
+          💡 অ্যাপ ইনস্টল না থাকলে Play Store এ নিয়ে যাবে
+        </p>
 
       </div>
     </div>
